@@ -73,6 +73,8 @@ CLASSES = {
                             equipment=12, description="No Man's Sky's Boundary Herald: a disc hull fanning glowing feather wings."),
     "bio_fighter": dict(scene="s-class/bioparts/biofighter", name="Bio Fighter", scale=2.5, armor=300, cargo=40, handling=160, price=4500000,
                         equipment=11, description="No Man's Sky's grown fighter: a living hull of fixed shape."),
+    "horizon_vector": dict(scene="fighters/fighterspecialswitch", name="Horizon Vector NX", scale=4.0, armor=270, cargo=32, handling=165, price=2800000,
+                           equipment=10, description="No Man's Sky's Horizon Vector NX: the special-edition fighter with the droid wing."),
     # the small hostile craft: in the traffic only, never sold
     "police_ship": dict(scene="police/policeship", name="Sentinel Police Ship", scale=2.5, armor=200, cargo=10, handling=170, price=0, race=9,
                         equipment=6, traffic_only=True, description="No Man's Sky's sentinel police ship."),
@@ -135,6 +137,12 @@ TURRET_ITEMS = [48, 49, 47]          # the game's blaster-bolt turrets, cycled o
 MAX_TURRETS = 8                      # the remake's limit for a capital ship's hardpoints in multiplayer copies
 TURRET_NODES = re.compile(r"(turretorigin|^turret|refturret|antishipturret|smallturretref|refheavycannon|turretpolice|cannon)", re.I)
 HANGAR_NODES = re.compile(r"hangarroot", re.I)
+
+# Who flies each class as NPC traffic (the remake's "Mod ships in traffic" share): the trader races, the pirates (8) with the
+# game's own habit of flying its fighters, haulers and shuttles, the sentinels (9, the Void) with their interceptors.
+TRAFFIC = {"fighter": ([0, 1, 2, 3, 8], 3), "hauler": ([0, 1, 2, 3, 8], 2), "explorer": ([0, 1, 2, 3], 2), "shuttle": ([0, 1, 2, 3, 8], 2),
+           "exotic": ([0, 1, 2, 3], 1), "solar": ([0, 1, 2, 3], 1), "living": ([0, 1, 2, 3], 1), "sentinel": ([9], 3)}
+FIXED_TRAFFIC = ([0, 1, 2, 3], 1)
 
 SKIP_MATERIAL_CLASSES = {2, 12, 22, 24}   # Additive (engine jets: the remake draws its own flames), Decal, GunAdditive, GunGlow
 EMISSIVE_CLASSES = {18, 19}               # Glow, GlowTranslucent
@@ -1095,6 +1103,10 @@ def ship_entry(kit, name, spec, parts):
     if spec.get("traffic_only"):   # a hostile craft of the traffic: flown by its race's fighters, never sold
         del entry["dealer"], entry["lounge"]
         entry["traffic"] = {"weight": 1, "races": [spec["race"]]}
+    else:
+        class_id = kit["id"].split("-")[0]
+        races, weight = TRAFFIC.get(class_id, FIXED_TRAFFIC)
+        entry["traffic"] = {"weight": weight, "races": races}
     if exhausts == 0:
         lo = min((p.bounds[0][2] for p in chosen if p.bounds), default=-3.0)
         entry["mounts"] = [{"slotType": 3, "position_engine": [0, 0, round(lo * spec["scale"] * UNITS_PER_METRE, 1)]}]

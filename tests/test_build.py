@@ -262,6 +262,7 @@ class BuildTests(unittest.TestCase):
             self.assertEqual(ship["build"]["cockpit"], "fighter-cockpit_a")
             self.assertEqual(ship["build"]["wings"], "fighter-wings_a")
             self.assertEqual(ship["slots"]["primary"], 2)
+            self.assertEqual(ship["traffic"], {"weight": 3, "races": [0, 1, 2, 3, 8]})   # NPC fighters, pirates among them, fly it
             mod = json.load(open(os.path.join(out, "mod.json")))
             self.assertEqual(mod["id"], "nms_ships")
             self.assertEqual(json.load(open(os.path.join(out, "shipkits.json")))[0]["id"], "fighter")
@@ -313,6 +314,7 @@ class FixedDesignTests(unittest.TestCase):
             self.assertEqual(ship["kit"], "test_fixed")
             self.assertEqual(ship["build"]["hull"], "test_fixed-hull")
             self.assertEqual(ship["dealer"]["chance"], 1)   # a unique: rare at the dealers
+            self.assertEqual(ship["traffic"], {"weight": 1, "races": [0, 1, 2, 3]})
 
 
 @unittest.skipUnless(HAVE_ZSTD, "no zstd")

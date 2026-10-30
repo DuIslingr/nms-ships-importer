@@ -78,7 +78,8 @@ One kit per No Man's Sky class, or per hull where a class begins with a whole-hu
 And the game's fixed designs, each a kit of one hull (so it takes the paint slots like the others): the Golden Vector
 and the gold Rasamama (the classic fighters, `FIGHTERS/FIGHTERCLASSICGOLD`, `RASAMAMAGOLD`), the Utopia Speeder
 (`VRSPEEDER`), the Starborn Runner (`VINTAGEINTERCEPTOR`), the two racers (`WRACER`, `WRACERSE`), the Boundary Herald
-(`SPOOKSHIP`, the disc with the glowing feather wings) and the grown Bio Fighter (`S-CLASS/BIOPARTS/BIOFIGHTER`). They
+(`SPOOKSHIP`, the disc with the glowing feather wings), the grown Bio Fighter (`S-CLASS/BIOPARTS/BIOFIGHTER`) and the
+Horizon Vector NX (`FIGHTERSPECIALSWITCH`, the special-edition fighter). They
 are rarer at the dealers. `--classes fixed` builds only these, `--classes procedural` only the customizable classes; the
 names are the importer's (`CLASSES` in `tools/build.py` renames them). The modular corvettes of the Voyagers update are a
 different system (a hull built from `BIGGS/MODULES` pieces) and are not brought over.
@@ -111,6 +112,13 @@ half around (`modelYaw` 180, its mounts with it). The sentinel police ship, the 
 fighter and drone come over as hostile fighters of the traffic, never sold. Left out: the shield spheres, effect planes,
 gravity volumes and corvette docking pads the scenes carry, and the modular corvettes. `--classes capitals` builds only
 the capital ships.
+
+**Who flies them.** No Man's Sky has no separate hostile fighters: its pirates fly the ordinary ships and its sentinels
+their interceptors. So every ship here is also traffic for the remake's NPC fighters (patrols, raiders, pirates, escorts,
+guards; the Gameplay option "Mod ships in traffic" sets the share): the fighters, haulers and shuttles for the four trader
+races and the pirates, the explorers, exotics, solar and living ships and the fixed designs for the trader races, the
+sentinel interceptors, police and drone ships and the brood craft for the Void. The sentinel capital ship, the brood
+frigate and hive, the pirate dreadnought and the pirate cruiser are their hostile capital ships.
 
 **Part bonuses.** Each part changes the ship a little by its size against the other parts of its slot, the flavour
 No Man's Sky had before its 4.0 update (big wings carried more): wider wings and sails give cargo and cost handling
