@@ -35,6 +35,7 @@ MAX_PARTS_PER_SLOT = 14
 MAX_TEXTURE = 2048
 TRANSITIONS = "pose"            # "pose": the ship in its flying pose (the end of its take-off), "loop": take-off and landing looped, "rest": as modelled
 ANIMATIONS = True
+PART_STATS = True              # small hull / cargo / handling / speed bonuses from each part's size
 
 SPACECRAFT = "models/common/spacecraft/"
 CLASSES = {
@@ -246,6 +247,7 @@ class Part:
         self.triangles = 0
         self.bounds = None
         self.animated = False
+        self.stats = {}
 
 
 def locator_mounts(asm, scale, overrides=None):
@@ -419,10 +421,14 @@ class KitBuilder:
                     self.report.warn(f"{p.id}: {e}")
             kit = {"id": kit_id, "name": f"No Man's Sky {name} hulls", "slots": [s for s in slots if any(p.slot == s for p in built)],
                    "scale": spec["scale"], "yaw": 0, "parts": []}
+            if PART_STATS:
+                part_stats(built)
             for p in built:
                 entry = {"id": p.id, "slot": p.slot, "name": p.name, "model": p.model}
                 if p.mounts:
                     entry["mounts"] = p.mounts
+                if p.stats:
+                    entry["stats"] = p.stats
                 kit["parts"].append(entry)
             if built:
                 results.append((kit, name, built))
@@ -627,6 +633,48 @@ class KitBuilder:
             w.add_animation("flight", flight)
         for kind, tracks in anims["transitions"].items():
             w.add_animation(kind, channels_of(tracks))
+
+
+# --- per-part stat bonuses --------------------------------------------------------------------------------------------
+
+STAT_LIMIT = 8   # per cent at most, per stat and part: a build stays close to its ship's own numbers
+WING_SLOTS = re.compile(r"(wing|sail|tip|flap|skirt|fin)", re.I)
+ENGINE_SLOTS = re.compile(r"(engine|thrust)", re.I)
+HULL_SLOTS = re.compile(r"(cockpit|hull|body|pit|shuttle|sclassship|back|core|frame|canopy)", re.I)
+
+
+def part_stats(parts):
+    """Small stat bonuses from each part's size against the other parts of its slot, the old No Man's Sky flavour
+    (big wings carried more; the game dropped it in 4.0): wings: wider = more cargo, less handling and turn; hulls:
+    bigger = more hull and cargo, slower to accelerate, smaller = handling and speed; engines: bigger = faster,
+    quicker, less nimble. Accessories and the rest: nothing. Percentages, +-STAT_LIMIT at most."""
+    by_slot = {}
+    for p in parts:
+        if p.bounds:
+            by_slot.setdefault(p.slot, []).append(p)
+    for slot, group in by_slot.items():
+        kind = "wing" if WING_SLOTS.search(slot) else "engine" if ENGINE_SLOTS.search(slot) else "hull" if HULL_SLOTS.search(slot) else None
+        if kind is None or len(group) < 2:
+            continue
+
+        def measure(p):
+            lo, hi = p.bounds
+            ext = [max(hi[i] - lo[i], 1e-3) for i in range(3)]
+            return ext[0] if kind == "wing" else ext[0] * ext[1] * ext[2]
+        values = [measure(p) for p in group]
+        mean = sum(values) / len(values)
+        for p, v in zip(group, values):
+            ratio = max(-1.0, min(1.0, math.log(v / mean) / math.log(2.0)))   # twice the mean = +1, half = -1
+            k = round(ratio * STAT_LIMIT)
+            if k == 0:
+                continue
+            if kind == "wing":
+                stats = {"cargo": k, "handling": -k // 2, "turnRate": -k // 2}
+            elif kind == "hull":
+                stats = {"armor": k, "cargo": k * 3 // 4, "acceleration": -k // 2, "handling": -k // 3, "topSpeed": -k // 4}
+            else:
+                stats = {"topSpeed": k, "acceleration": k, "handling": -k // 2}
+            p.stats = {a: b for a, b in stats.items() if b}
 
 
 # --- the mod ----------------------------------------------------------------------------------------------------------

@@ -69,7 +69,7 @@ def synthetic_game(folder):
     pos, uv, n, idx = box(0, 1, 2)
     detail = box(0, 1, 2, 0.1)
     cockpit_a = part("cockpita", {"COCKPITALOD0": (pos, uv, n, idx), "COCKPITALOD1": detail})
-    cockpit_b = part("cockpitb", {"COCKPITBLOD0": box(0, 1, 2.5)})
+    cockpit_b = part("cockpitb", {"COCKPITBLOD0": box(0, 1, 2.5, 0.8)})
     jet = part("jet", {"JETLOD0": box(0, 0, -3)}, material="jet")
     glow = part("glow", {"GLOWLOD0": box(0, 0, -2.5, 0.2)}, material="glow")
     engine_children = [{"name": "RefEngine1", "type": "REFERENCE", "attrs": {"SCENEGRAPH": jet}, "transform": ((0, 180, 0), (1, 1, 1), (0.5, 1, -2)),
@@ -153,6 +153,12 @@ class BuildTests(unittest.TestCase):
             self.assertEqual(exhausts[0]["position_engine"], [40.0, 80.0, -184.0])   # the trail 0.3 behind the turned-around thruster
             self.assertEqual(exhausts[0]["glowColor"], [0.6, 0.1, 1.0])
             self.assertNotIn("mounts", by_id["fighter-cockpit_a"])
+            # stat bonuses from size: cockpit B is the bigger box, so it gives hull and cargo and costs acceleration; A the reverse
+            self.assertGreater(by_id["fighter-cockpit_b"]["stats"]["armor"], 0)
+            self.assertLess(by_id["fighter-cockpit_a"]["stats"]["armor"], 0)
+            self.assertLess(by_id["fighter-cockpit_b"]["stats"]["acceleration"], 0)
+            self.assertTrue(all(abs(v) <= build.STAT_LIMIT for p in kit["parts"] for v in p.get("stats", {}).values()))
+            self.assertNotIn("stats", by_id["fighter-engine_a"])   # alone in its slot: nothing to compare with
             # the GLBs: the cockpit's LOD0 box only (its coarser LOD1 left out), the acc variant holds the turned accessory
             doc, binary = glb.read(os.path.join(out, by_id["fighter-cockpit_a"]["model"]))
             self.assertEqual(len(doc["meshes"]), 1)

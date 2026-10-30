@@ -86,6 +86,12 @@ it, as one piece; the other choices are further parts of the slot (up to `--max-
 so every part of a kit fits every build of it. No Man's Sky's one ship gun model stays on the hull at the game's gun
 points, as the base game's ships carry theirs; the weapon mounts sit at the same points, so your shots leave its barrels.
 
+**Part bonuses.** Each part changes the ship a little by its size against the other parts of its slot, the flavour
+No Man's Sky had before its 4.0 update (big wings carried more): wider wings and sails give cargo and cost handling
+and turn rate, a bigger cockpit or hull gives hull points and cargo and costs acceleration, bigger engines give speed
+and acceleration and cost handling, a few per cent each and 8 at most; small parts give the reverse, accessories
+nothing. The Customize screen shows the result as you pick. `--no-part-stats` leaves the parts without them.
+
 **Moving parts.** The parts keep what moves in flight, as the remake plays it (a model's first animation, looped, on
 objects that turn or move): the engines' turbines and every other spinner (No Man's Sky's rotation components: the
 royal exotic's engine rings, the solar ships' spinning engine parts, the shuttles' and haulers' rotating pods), and the

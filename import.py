@@ -80,6 +80,7 @@ def main():
                     help="the parts that swing out for flight (wings, engines): pose = shown in their flying pose (default); "
                          "loop = their take-off and landing played in a loop; rest = as modelled (the landed pose)")
     ap.add_argument("--no-animations", action="store_true", help="no animations: no spinning turbines, no idle loops, the landed pose")
+    ap.add_argument("--no-part-stats", action="store_true", help="no stat bonuses from the parts' sizes (big wings carry more, big engines go faster)")
     ap.add_argument("--zip", action="store_true", help="also zip the mod")
     ap.add_argument("--fresh", action="store_true", help="delete the output folder first")
     first, _ = ap.parse_known_args()
@@ -116,6 +117,7 @@ def main():
     build.MAX_PARTS_PER_SLOT = a.max_parts
     build.TRANSITIONS = a.transitions
     build.ANIMATIONS = not a.no_animations
+    build.PART_STATS = not a.no_part_stats
     try:
         kits, ships, report = build.build(banks, out, classes, limit_parts=a.limit_parts, max_texture=a.max_texture)
     except hgpak.MissingCodec as e:
