@@ -21,6 +21,7 @@ import sys
 import time
 
 import numpy as np
+from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
@@ -96,8 +97,29 @@ class Report:
 
 # --- materials and textures ---------------------------------------------------------------------------------------
 
+JET_MAP = re.compile(r"engine_jet", re.I)
+GLOW_MAP = re.compile(r"engineglow", re.I)
+STAGE_BOOST = re.compile(r"boost", re.I)   # the staged jet engine's boost stage (the decomp: STAGE1 lit by thrust, STAGE2 by speed and the pulse drive, BOOST by boost)
+FLAME_NOISE = "maps/engine_jet_noise.png"
+
+
+def engine_role(mat):
+    """'flame' for the jet cones the game draws additively over thrust, 'engineglow' for the glow discs, else None."""
+    if not mat:
+        return None
+    maps = " ".join(s["map"] for s in mat["samplers"])
+    if mat["material_class"] == 2 and JET_MAP.search(maps):
+        return "flame"
+    if mat["material_class"] in EMISSIVE_CLASSES and GLOW_MAP.search(maps):
+        return "engineglow"
+    return None
+
+
 def role_of(material_name, mat):
     n = material_name.lower()
+    special = engine_role(mat)
+    if special:
+        return special
     if "primary" in n:
         return "paint1"
     if "secondary" in n:
@@ -143,8 +165,9 @@ class Materials:
         self.textures[p] = (rel, kind)
         return rel
 
-    def name_for(self, placed):
-        """(GLB material name, NMS material class) of a placed mesh's material."""
+    def name_for(self, placed, engine_colour=None):
+        """(GLB material name, NMS material class) of a placed mesh's material. `engine_colour` is the engine light's
+        colour of the assembly, the colour of its flames and glows."""
         path, mat = scene.material_of(self.banks, placed, self.cache)
         if mat is None:
             key, role, maps, colour, cls, nms_name = ("none",), "plain", {}, (1.0, 1.0, 1.0, 1.0), 45, "none"
@@ -162,6 +185,8 @@ class Materials:
                 elif n == "gnormalmap":
                     maps["normal"] = s["map"]
             colour = tuple(round(float(x), 3) for x in uniform(mat, "gMaterialColourVec4"))
+            if role in ("flame", "engineglow"):
+                colour = tuple(engine_colour or (0.62, 0.16, 1.0))
             key = (tuple(sorted((k, scene.game_path(v)) for k, v in maps.items())), cls, colour, role)
         if key in self.names:
             return self.names[key], cls
@@ -169,6 +194,23 @@ class Materials:
         name = f"mat_{index:04d}_{role}"
         self.names[key] = name
         entry = {"material": name, "_nms": nms_name}
+        if role == "flame":
+            # the jet cones: the remake's engine flames (lit by thrust, the boost cards while boosting), in the engine's colour
+            self.flame_noise()
+            entry.update({"flame": True, "flameLength": 0.5, "emissionColor": [round(float(x), 3) for x in colour[:3]], "emissionIntensity": 2.5,
+                          "boostColor": [round(0.5 + 0.5 * float(x), 3) for x in colour[:3]], "flameNoise": FLAME_NOISE})
+            self.entries[key] = entry
+            return name, cls
+        if role == "engineglow":
+            # the glow discs at the nozzles: lit with the engines, steady while they run
+            entry.update({"engine": True, "engineIdle": 1, "emissionColor": [round(float(x), 3) for x in colour[:3]], "emissionIntensity": 2})
+            if "diffuse" in maps:
+                rel = self.texture(maps["diffuse"], "g")
+                if rel:
+                    entry["emission"] = rel
+            entry["color"] = [0, 0, 0]
+            self.entries[key] = entry
+            return name, cls
         for k, kind, field in (("diffuse", "d", "diffuse"), ("masks", "ms", "metallicSmoothness"), ("normal", "n", "normal")):
             if k in maps:
                 rel = self.texture(maps[k], kind)
@@ -191,9 +233,15 @@ class Materials:
     def kit_entries(self):
         out = []
         for e in self.entries.values():
-            if any(k in e for k in ("diffuse", "normal", "metallicSmoothness", "emissionColor", "color", "opacity")):
+            if any(k in e for k in ("diffuse", "normal", "metallicSmoothness", "emissionColor", "color", "opacity", "flame", "engine")):
                 out.append({k: v for k, v in e.items() if not k.startswith("_")})
         return out
+
+    def flame_noise(self):
+        """The flame flicker noise from the game's jet texture: its streaks across the jet, tiled."""
+        if FLAME_NOISE in self.textures.values() or "_noise" in self.textures:
+            return
+        self.textures["_noise"] = (FLAME_NOISE, "noise")
 
     def convert(self, out, max_size=MAX_TEXTURE):
         done, failed = 0, 0
@@ -204,8 +252,17 @@ class Materials:
             if os.path.exists(dst):
                 continue
             try:
+                if kind == "noise":
+                    textures.save_png(flame_noise_image(self.banks), dst)
+                    done += 1
+                    continue
                 im = textures.decode(self.banks.read(p))
-                if kind == "n":
+                if kind == "g":
+                    im = im.convert("RGBA")
+                    rgb = np.asarray(im).astype(np.float32)
+                    lum = (rgb[..., :3].max(axis=2) * rgb[..., 3] / 255.0).astype(np.uint8)   # the disc's shape as grey
+                    im = Image.merge("RGB", [Image.fromarray(lum)] * 3)
+                elif kind == "n":
                     im = textures.normal_map(im)
                 elif kind == "ms":
                     im = textures.masks_to_metallic_smoothness(im)
@@ -221,6 +278,30 @@ class Materials:
                 self.report.warn(f"{p}: {e}")
                 failed += 1
         return done, failed
+
+
+JET_TEXTURE = "textures/effects/ship/engine_jet.dds"
+
+
+def flame_noise_image(banks, size=256):
+    """A tiling grey noise from the jet texture's streaks (the rows across the jet, taken where the streaks show, mirrored
+    to tile); a plain noise when the game lacks the texture."""
+    rng = np.random.default_rng(7)
+    if banks is not None and banks.exists(JET_TEXTURE):
+        try:
+            im = textures.decode(banks.read(JET_TEXTURE)).convert("RGBA")
+            a = np.asarray(im).astype(np.float32)
+            w = a.shape[1]
+            band = a[:, w // 4: w // 2, 0]   # the red channel, across the jet, where the streaks are
+            band = (band - band.min()) / max(band.max() - band.min(), 1e-6)
+            tile = np.concatenate([band, band[:, ::-1]], axis=1)
+            tile = np.concatenate([tile, tile[::-1, :]], axis=0)
+            img = Image.fromarray((tile * 255).astype(np.uint8), "L").resize((size, size), Image.BILINEAR)
+            return img.convert("RGB")
+        except Exception:
+            pass
+    noise = (rng.random((size, size)) * 255).astype(np.uint8)
+    return Image.fromarray(noise, "L").convert("RGB")
 
 
 # --- parts ----------------------------------------------------------------------------------------------------------
@@ -248,21 +329,39 @@ class Part:
         self.bounds = None
         self.animated = False
         self.stats = {}
+        self.engine_colour = None
 
 
-def locator_mounts(asm, scale, overrides=None):
-    """Weapon and exhaust mounts of an assembled subtree, in game units (in the flying pose when `overrides` has one)."""
-    mounts = []
-    k = scale * UNITS_PER_METRE
-    seen = set()
-    light = None
+def engine_colour(asm):
+    """The colour of the assembly's engine light (the decomp: lights whose name holds ENGINE light the thrusters), or None."""
     for l in asm.lights:
         a = l.node.attrs
         if "engine" in l.node.name.lower() and "COL_R" in a:
-            light = [round(float(a.get("COL_R", 1)), 3), round(float(a.get("COL_G", 1)), 3), round(float(a.get("COL_B", 1)), 3)]
-            break
+            return [round(float(a.get("COL_R", 1)), 3), round(float(a.get("COL_G", 1)), 3), round(float(a.get("COL_B", 1)), 3)]
+    for l in asm.lights:
+        a = l.node.attrs
+        if "COL_R" in a and float(a.get("INTENSITY", 0)) > 1:
+            return [round(float(a.get("COL_R", 1)), 3), round(float(a.get("COL_G", 1)), 3), round(float(a.get("COL_B", 1)), 3)]
+    return None
 
-    def add(p, slot_type):
+
+def socket_scale(p, scale):
+    """The size of an exhaust's effects from its trail locator's scale (the game sizes its trail by it), in the remake's
+    socket units (EVERSPACE 2's default socket is 1)."""
+    s = float(p.node.transform["scale"][0]) * scale / 2.0
+    return round(max(0.3, min(2.5, s)), 2)
+
+
+def locator_mounts(asm, scale, overrides=None):
+    """Weapon, exhaust and booster mounts of an assembled subtree, in game units (in the flying pose when `overrides`
+    has one): guns from the gun references, exhausts from the TRAIL locators (the game's engine trails), boosters from
+    the CONTRAIL locators (its wingtip contrails, drawn while boosting)."""
+    mounts = []
+    k = scale * UNITS_PER_METRE
+    seen = set()
+    light = engine_colour(asm)
+
+    def add(p, slot_type, extra=None):
         pos = tuple(round(float(x) * k, 1) for x in (p.world(overrides)[:3, 3] if overrides else p.position))
         if pos in seen:
             return
@@ -270,6 +369,8 @@ def locator_mounts(asm, scale, overrides=None):
         m = {"slotType": slot_type, "position_engine": list(pos)}
         if slot_type == 3 and light:
             m["glowColor"] = light
+        if extra:
+            m.update(extra)
         mounts.append(m)
 
     for p in asm.references:
@@ -284,13 +385,16 @@ def locator_mounts(asm, scale, overrides=None):
     mounts += [{"slotType": 1, "position_engine": list(m["position_engine"])} for m in mounts if m["slotType"] == 0]
     for p in asm.locators:
         n = p.node.name.lower()
-        if n == "trail" or n.startswith("engine_trail") or re.match(r"(jet|thruster)\d*$", n):
-            add(p, 3)
+        if n.startswith("trail") or n.startswith("engine_trail") or re.match(r"(jet|thruster)\d*$", n):
+            add(p, 3, {"socketScale": socket_scale(p, scale)})
     if not any(m["slotType"] == 3 for m in mounts):
         for p in asm.references:
             n = p.node.name.lower()
             if "engine" in n and "ref" in n:
                 add(p, 3)
+    for p in asm.locators:
+        if p.node.name.lower().startswith("contrail"):
+            add(p, 5, {"socketScale": 0.5})   # wingtip contrails: thin
     return mounts
 
 
@@ -498,7 +602,7 @@ class KitBuilder:
                         track = an.track(name)
                         out["loop"].append((node, [t[0] for t in track] if r_on else None, [t[2] for t in track] if t_on else None,
                                             [t[1] for t in track] if s_on else None))
-            for kind in ("TAKEOFF", "LANDING"):
+            for kind in ("TAKEOFF", "LANDING", "THRUST"):
                 tr = animation.transition(comp, kind)
                 if not tr:
                     continue
@@ -516,12 +620,12 @@ class KitBuilder:
                     track = an.track(name)
                     tracks.append((node, [t[0] for t in track] if r_on else None, [t[2] for t in track] if t_on else None,
                                    [t[1] for t in track] if s_on else None))
-                    if kind == "TAKEOFF" and TRANSITIONS == "pose":
+                    if (kind == "TAKEOFF" and TRANSITIONS == "pose") or kind == "THRUST":   # THRUST: the jets grown to full thrust
                         rot, sc, trn = track[-1]
                         t0 = node.transform
                         q = rot if rot else glb.quaternion_from_matrix(geometry.transform_matrix(t0)[:3, :3] / np.maximum(np.linalg.norm(geometry.transform_matrix(t0)[:3, :3], axis=0), 1e-9))
                         out["overrides"][node] = animation.local_matrix(q, sc if sc else t0["scale"], trn if trn else t0["trans"])
-                if tracks:
+                if tracks and kind != "THRUST":
                     out["transitions"][kind.lower()] = tracks
         return out
 
@@ -574,16 +678,27 @@ class KitBuilder:
             return parent
 
         drawn = [p for p in asm.meshes if not SKIP_NODES.search(p.path)]
+        colour = engine_colour(asm)
         for i, placed in enumerate(scene.finest_meshes(drawn)):
             g = placed.scene.geometry
-            name, cls = self.materials.name_for(placed)
-            if cls in SKIP_MATERIAL_CLASSES:
+            name, cls = self.materials.name_for(placed, colour)
+            role = name.rsplit("_", 1)[1]
+            if cls in SKIP_MATERIAL_CLASSES and role != "flame":
                 continue
             m = g.mesh(placed.node.name)
             if not len(m.indices):
                 continue
-            role = name.rsplit("_", 1)[1]
-            mat = w.material(name, alpha_mode="BLEND" if role == "glass" else None, double_sided=cls == 15)
+            mat = w.material(name, alpha_mode="BLEND" if role in ("glass", "flame") else None, double_sided=cls == 15 or role == "flame")
+            uvs, uvs2 = m.uvs, None
+            if role == "flame":
+                # a flame card: u from 0 at the nozzle to 1 at the tip (the jet points backward, -Z, in the ship's frame),
+                # the second channel's y naming the card: 0.5 a main card lit by thrust (STAGE1, STAGE2), 0.25 a boost card
+                world = placed.world(overrides) if overrides else placed.matrix
+                z = geometry.apply(world, m.positions)[:, 2]
+                span = max(float(z.max() - z.min()), 1e-6)
+                uvs = np.stack([(z.max() - z) / span, m.uvs[:, 1]], axis=1).astype(np.float32)
+                boost = any(STAGE_BOOST.search(n.name) for n in placed.chain)
+                uvs2 = np.full((len(m.positions), 2), 0.25 if boost else 0.5, np.float32)
             moving = [n for n in placed.chain if n in animated]
             if moving:
                 for k in range(len(placed.chain)):
@@ -592,8 +707,8 @@ class KitBuilder:
                 M = overrides.get(placed.node, placed.node.local)
                 t, r, sc = glb.trs(M)
                 idx = m.indices[:, ::-1] if np.linalg.det(placed.world(overrides)[:3, :3]) < 0 else m.indices
-                glb_nodes[placed.node] = w.add_mesh(f"{part.id}_{i:03d}_{placed.node.name}", m.positions, m.normals, m.uvs, idx, mat,
-                                                    parent=parent, translation=t, rotation=r, scale=sc)
+                glb_nodes[placed.node] = w.add_mesh(f"{part.id}_{i:03d}_{placed.node.name}", m.positions, m.normals, uvs, idx, mat,
+                                                    uvs2=uvs2, parent=parent, translation=t, rotation=r, scale=sc)
                 world = placed.world(overrides)
                 pos = geometry.apply(world, m.positions)
             else:
@@ -601,10 +716,11 @@ class KitBuilder:
                 pos = geometry.apply(world, m.positions)
                 nrm = geometry.apply_normals(world, m.normals)
                 idx = m.indices[:, ::-1] if np.linalg.det(world[:3, :3]) < 0 else m.indices
-                w.add_mesh(f"{part.id}_{i:03d}_{placed.node.name}", pos, nrm, m.uvs, idx, mat)
+                w.add_mesh(f"{part.id}_{i:03d}_{placed.node.name}", pos, nrm, uvs, idx, mat, uvs2=uvs2)
             lo, hi = np.minimum(lo, pos.min(0)), np.maximum(hi, pos.max(0))
             tris += m.triangle_count
         part.mounts = locator_mounts(asm, scale, overrides)
+        part.engine_colour = colour
         if tris == 0 and not (part.option is None and part.mounts):
             return False
         self.write_animations(w, anims, glb_nodes, chains, ensure, overrides)
@@ -743,7 +859,7 @@ def ship_entry(kit, name, spec, parts):
              "armor": spec["armor"], "cargo": spec["cargo"], "handling": spec["handling"], "price": spec["price"],
              "slots": {"primary": max(2, min(primaries, 6)), "secondary": max(2, min(secondaries, 4)), "turret": 0, "equipment": spec["equipment"]},
              "kit": kit["id"], "kitType": kit["id"], "build": build,
-             "engineGlowColor": [0.62, 0.16, 1.0],
+             "engineGlowColor": next((p.engine_colour for p in chosen if p.engine_colour), [0.62, 0.16, 1.0]),
              "dealer": {"chance": 3, "systemRace": -1, "minTechLevel": 3},
              "lounge": {"systemRace": -1, "minCampaign": 8, "minRank": 4, "chance": 10}}
     if exhausts == 0:

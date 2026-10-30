@@ -50,7 +50,12 @@ def synthetic_game(folder):
         "TEXTURES/COMMON/SPACECRAFT/TEST/PRIMARY.NORMAL.DDS")
     files["models/common/spacecraft/fighters/parts/cockpita/glow.material.mbin"] = fixtures.make_material(
         "HQLight_Mat", 19, "TEXTURES/COMMON/SPACECRAFT/TEST/GLOW.DDS", colour=(0.2, 0.9, 1, 1))
-    files["models/common/spacecraft/fighters/parts/cockpita/jet.material.mbin"] = fixtures.make_material("EngineJet_Mat", 2)
+    files["textures/effects/ship/engine_jet.dds"] = tex
+    files["textures/common/spacecraft/shared/engineglow.1.dds"] = tex
+    files["models/common/spacecraft/fighters/parts/cockpita/jet.material.mbin"] = fixtures.make_material(
+        "EngineJet_Mat", 2, "TEXTURES/EFFECTS/SHIP/ENGINE_JET.DDS")
+    files["models/common/spacecraft/fighters/parts/cockpita/engineglow.material.mbin"] = fixtures.make_material(
+        "EngineGlow_Mat", 19, "TEXTURES/COMMON/SPACECRAFT/SHARED/ENGINEGLOW.1.DDS")
 
     def part(name, meshes, extra_children=(), material="primary", joint_meshes=(), folder="models/common/spacecraft/fighters/parts"):
         base = f"{folder}/{name}"
@@ -70,12 +75,18 @@ def synthetic_game(folder):
     detail = box(0, 1, 2, 0.1)
     cockpit_a = part("cockpita", {"COCKPITALOD0": (pos, uv, n, idx), "COCKPITALOD1": detail})
     cockpit_b = part("cockpitb", {"COCKPITBLOD0": box(0, 1, 2.5, 0.8)})
-    jet = part("jet", {"JETLOD0": box(0, 0, -3)}, material="jet")
-    glow = part("glow", {"GLOWLOD0": box(0, 0, -2.5, 0.2)}, material="glow")
+    # a thruster as the game builds it: the jet cone under Stage2 (pointing +Z here, turned around by the reference),
+    # the glow disc under Stage1, a Trail locator sized by its scale
+    jet_pos = np.array([[0, 0, 0], [0.3, 0, 0], [0, 0.3, 0], [0, 0, 2.0]], np.float32)
+    jet = part("jet", {"JETLOD0": (jet_pos, np.zeros((4, 2), np.float32), np.array([[0, 0, 1]] * 4, np.float32), np.array([[0, 1, 2], [1, 3, 2]], np.uint32))},
+               material="jet", joint_meshes={"JETLOD0"},
+               extra_children=[{"name": "Stage2", "type": "LOCATOR", "children": [{"name": "JetLOD0", "type": "MESH", "attrs": {"LODLEVEL": "0", "MATERIAL": "MODELS\\COMMON\\SPACECRAFT\\FIGHTERS\\PARTS\\COCKPITA\\JET.MATERIAL.MBIN"}}]}])
+    glow = part("glow", {"GLOWLOD0": box(0, 0, 0, 0.2)}, material="engineglow", joint_meshes={"GLOWLOD0"},
+                extra_children=[{"name": "Stage1", "type": "LOCATOR", "children": [{"name": "GlowLOD0", "type": "MESH", "attrs": {"LODLEVEL": "0", "MATERIAL": "MODELS\\COMMON\\SPACECRAFT\\FIGHTERS\\PARTS\\COCKPITA\\ENGINEGLOW.MATERIAL.MBIN"}}]}])
     engine_children = [{"name": "RefEngine1", "type": "REFERENCE", "attrs": {"SCENEGRAPH": jet}, "transform": ((0, 180, 0), (1, 1, 1), (0.5, 1, -2)),
-                        "children": [{"name": "Trail", "type": "LOCATOR", "transform": ((0, 0, 0), (1, 1, 1), (0, 0, 0.3))}]},
+                        "children": [{"name": "Trail", "type": "LOCATOR", "transform": ((0, 0, 0), (0.75, 0.75, 0.75), (0, 0, 0.3))}]},
                        {"name": "RefEngine2", "type": "REFERENCE", "attrs": {"SCENEGRAPH": glow}, "transform": ((0, 180, 0), (1, 1, 1), (-0.5, 1, -2)),
-                        "children": [{"name": "Trail", "type": "LOCATOR", "transform": ((0, 0, 0), (1, 1, 1), (0, 0, 0.3))}]},
+                        "children": [{"name": "Trail", "type": "LOCATOR", "transform": ((0, 0, 0), (0.75, 0.75, 0.75), (0, 0, 0.3))}]},
                        {"name": "EngineLight", "type": "LIGHT", "attrs": {"COL_R": "0.600000", "COL_G": "0.100000", "COL_B": "1.000000"}}]
     files["models/common/spacecraft/fighters/parts/engine/entities/spin.entity.mbin"] = fixtures.make_entity(rotation=((0, 0, 1), 0.5))
     engine_children.append({"name": "TurbineLOD0", "type": "MESH", "attrs": {"LODLEVEL": "0", "ATTACHMENT": "MODELS\\COMMON\\SPACECRAFT\\FIGHTERS\\PARTS\\ENGINE\\ENTITIES\\SPIN.ENTITY.MBIN",
@@ -102,7 +113,7 @@ def synthetic_game(folder):
                               "FLAPLOD0": box(1, 0, 0, 0.2)},
                    [{"name": "Gun1Ref", "type": "REFERENCE", "attrs": {"SCENEGRAPH": gun}, "transform": ((0, 0, 0), (1, 1, 1), (3, 1, 0))},
                     {"name": "Gun1Ref1", "type": "REFERENCE", "attrs": {"SCENEGRAPH": gun}, "transform": ((0, 0, 0), (1, 1, 1), (-3, 1, 0))},
-                    {"name": "Contrail1", "type": "LOCATOR"}] + wing_children, joint_meshes={"FLAPLOD0"})
+                    {"name": "Contrail1", "type": "LOCATOR", "transform": ((0, 180, 0), (1, 1, 1), (-4, 1, -0.5))}] + wing_children, joint_meshes={"FLAPLOD0"})
     proc = "models/common/spacecraft/fighters/fighter_proc"
     files[proc + ".scene.mbin"] = fixtures.make_scene({
         "name": "MODELS\\COMMON\\SPACECRAFT\\FIGHTERS\\FIGHTER_PROC", "type": "MODEL", "attrs": {},
@@ -125,6 +136,14 @@ def synthetic_game(folder):
     write(os.path.join(pc, "NMSARC.MeshCommon.pak"), fixtures.make_hgpak(dict(items[:half])))
     write(os.path.join(pc, "NMSARC.Misc.pak"), fixtures.make_hgpak(dict(items[half:])))
     return pc
+
+
+def mats_of(kit):
+    return kit["materials"]
+
+
+def ship_of(ships, kit_id):
+    return next(s for s in ships if s["id"] == kit_id)
 
 
 @unittest.skipUnless(HAVE_ZSTD, "no zstd")
@@ -154,6 +173,11 @@ class BuildTests(unittest.TestCase):
             self.assertEqual(len(exhausts), 2)
             self.assertEqual(exhausts[0]["position_engine"], [40.0, 80.0, -184.0])   # the trail 0.3 behind the turned-around thruster
             self.assertEqual(exhausts[0]["glowColor"], [0.6, 0.1, 1.0])
+            self.assertEqual(exhausts[0]["socketScale"], 1.5)   # the trail locator's scale 0.75 x the kit scale 4 / 2
+            boosters = [m for m in by_id["fighter-wings_a"]["mounts"] if m["slotType"] == 5]
+            self.assertEqual(len(boosters), 1)   # the wings' contrail
+            self.assertEqual(boosters[0]["position_engine"], [-320.0, 80.0, -120.0])
+            self.assertEqual(boosters[0]["socketScale"], 0.5)
             self.assertNotIn("mounts", by_id["fighter-cockpit_a"])
             # stat bonuses from size: cockpit B is the bigger box, so it gives hull and cargo and costs acceleration; A the reverse
             self.assertGreater(by_id["fighter-cockpit_b"]["stats"]["armor"], 0)
@@ -174,11 +198,35 @@ class BuildTests(unittest.TestCase):
             self.assertAlmostEqual(acc["max"][0], -0.7, places=2)   # the accessory box at (0, 2, 0) +- 0.3 turned 90 about Z (x = -2) and moved by its node (1, 0, 0)
             doc, _ = glb.read(os.path.join(out, by_id["fighter-wings_a"]["model"]))
             self.assertFalse(any("Acclod0" in m["name"] for m in doc["meshes"]))
-            # the engine part skips the additive jet, keeps the glow as an emissive material, and its turbine spins:
-            # a 2 s rotation loop (0.5 turns per second) about the mesh's own Z, the mesh under a node at its place
-            doc, _ = glb.read(os.path.join(out, by_id["fighter-engine_a"]["model"]))
-            self.assertFalse(any("Jetlod0" in m["name"] for m in doc["meshes"]))
-            self.assertTrue(any(m["name"].endswith("_lights") for m in doc["materials"]))
+            # the engine part: the jet cone is a flame card (u 0 at the nozzle, 1 at the tip, a main card), the glow disc
+            # an engine-lit glow, both in the engine light's colour; its turbine spins: a 2 s rotation loop (0.5 turns per
+            # second) about the mesh's own Z, the mesh under a node at its place
+            doc, binary = glb.read(os.path.join(out, by_id["fighter-engine_a"]["model"]))
+            jet = next(m for m in doc["meshes"] if "JetLOD0" in m["name"])
+            prim = jet["primitives"][0]
+            self.assertTrue(doc["materials"][prim["material"]]["name"].endswith("_flame"))
+            acc = doc["accessors"]
+            def read(ai, dtype, n):
+                a = acc[ai]; v = doc["bufferViews"][a["bufferView"]]
+                return np.frombuffer(binary, dtype=dtype, count=a["count"] * n, offset=v["byteOffset"]).reshape(a["count"], n)
+            uv = read(prim["attributes"]["TEXCOORD_0"], "<f4", 2)
+            pos = read(prim["attributes"]["POSITION"], "<f4", 3)
+            self.assertAlmostEqual(float(uv[:, 0].min()), 0.0, places=5)
+            self.assertAlmostEqual(float(uv[:, 0].max()), 1.0, places=5)
+            self.assertEqual(int(np.argmax(uv[:, 0])), int(np.argmin(pos[:, 2])))   # the tip is the rearmost point
+            self.assertEqual(set(read(prim["attributes"]["TEXCOORD_1"], "<f4", 2)[:, 1].tolist()), {0.5})
+            flame = next(m for m in mats_of(kit) if m["material"].endswith("_flame"))
+            self.assertTrue(flame["flame"])
+            self.assertEqual(flame["emissionColor"], [0.6, 0.1, 1.0])
+            self.assertEqual(flame["flameNoise"], "maps/engine_jet_noise.png")
+            self.assertTrue(os.path.exists(os.path.join(out, flame["flameNoise"])))
+            glow = next(m for m in mats_of(kit) if m["material"].endswith("_engineglow"))
+            self.assertTrue(glow["engine"])
+            self.assertEqual(glow["engineIdle"], 1)
+            self.assertEqual(glow["emissionColor"], [0.6, 0.1, 1.0])
+            self.assertTrue(os.path.exists(os.path.join(out, glow["emission"])))
+            self.assertFalse(any(m["name"].endswith("_lights") for m in doc["materials"]))
+            self.assertEqual(ship_of(ships, "fighter")["engineGlowColor"], [0.6, 0.1, 1.0])
             self.assertEqual([a["name"] for a in doc["animations"]], ["flight"])
             chan = doc["animations"][0]["channels"][0]
             self.assertEqual(chan["target"]["path"], "rotation")
@@ -202,8 +250,6 @@ class BuildTests(unittest.TestCase):
             self.assertEqual(mats["mat_0000_paint1"]["diffuse"], "maps/test_primary_d.png")
             self.assertEqual(mats["mat_0000_paint1"]["metallicSmoothness"], "maps/test_primary_masks_ms.png")
             self.assertEqual(mats["mat_0000_paint1"]["normal"], "maps/test_primary_normal_n.png")
-            glow = next(m for m in mats.values() if m["material"].endswith("_lights"))
-            self.assertEqual(glow["emissionColor"], [0.2, 0.9, 1.0])
             for m in mats.values():
                 for k in ("diffuse", "normal", "metallicSmoothness", "emission"):
                     if k in m:

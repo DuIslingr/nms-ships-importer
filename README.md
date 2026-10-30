@@ -93,6 +93,15 @@ and turn rate, a bigger cockpit or hull gives hull points and cargo and costs ac
 and acceleration and cost handling, a few per cent each and 8 at most; small parts give the reverse, accessories
 nothing. The Customize screen shows the result as you pick. `--no-part-stats` leaves the parts without them.
 
+**Thrusters.** The engines are reproduced the way the game's own engine code builds them (the decompiled
+`cGcSpaceshipEngineEffects` / `cGcStagedJetEngine`): the jet cones the game draws additively under its `STAGE1` and
+`STAGE2` nodes, lit by thrust and speed, become the remake's engine flames (main flame cards, posed at the full-thrust end
+of their `THRUST` animation, with a flicker noise made from the game's jet texture); its `BOOST` stage jets become boost
+cards; the glow discs (`ENGINEGLOW`) glow with the engines; every engine light's colour (the nodes named `ENGINE`) colours
+that engine's flames, glow and exhaust effects; the `TRAIL` locators, which carry the game's engine trails, are the
+exhaust mounts, sized by their own scale; the `CONTRAIL` locators, the game's wingtip contrails while boosting, are
+booster mounts. Each ship's engine colour is its default build's.
+
 **Moving parts.** The parts keep what moves in flight, as the remake plays it (a model's first animation, looped, on
 objects that turn or move): the engines' turbines and every other spinner (No Man's Sky's rotation components: the
 royal exotic's engine rings, the solar ships' spinning engine parts, the shuttles' and haulers' rotating pods), and the

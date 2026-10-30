@@ -151,6 +151,31 @@ count is the number of u16): `scale = 1 / (0x3FFF sqrt 2)`, `qx = scale ((cx & 0
 3 x, 2 y, 1 z, 0 w. Scales and translations are Vector3f (16 bytes). A node's index below the frame lists' length picks
 the animated value; at or past it, the still frame's value at index minus that length. 30 frames per second.
 
+## Engine effects (from the iOS 7.10.4 decompilation)
+
+`cGcSpaceshipComponent::UpdateEngineEffects` fills a Settings block each frame (thrust power, a speed value, boost,
+the pulse-drive factor, an engine on/off ramp) and `cGcSpaceshipEngineEffects::Update` drives:
+
+- `cGcStagedJetEngine` (prepared by walking the engine's nodes): nodes whose upper-cased name holds `STAGE1` go to jet
+  stage 0, `STAGE2` to stage 1, `BOOST` to stage 2 (`AddJetStage` clones each stage node's material, `JetMatClone_%d_%d`,
+  so its `gMaterialColourVec4` can be set per stage); lights whose name holds `ENGINE` are the engine lights. Per frame:
+  `UpdatePower(power)` activates every stage node when power > 0; `UpdateStage(alpha, stage)` sets each stage's material
+  colour to (1, 1, 1, alpha) with alpha = power for stage 0, max(speed, boost) blended toward 1 by the pulse-drive factor
+  for stage 1, and boost for stage 2 (each `x + k (1 - x)` with k = 0 from `GcSpaceshipGlobals` at 0x1A50-0x1A58);
+  `UpdateLight(power * (0.5 + 0.5 speed))` scales the engine lights' intensity (0.5 from `GcSpaceshipGlobals` 0x14C0).
+- The six control animations of the engine's animation components (`AnimLookup<6>`, among them `THRUST`) are set to a
+  time from the settings each frame (thrust, its negative, the pulse factor, the ramp): the `THRUST` animation grows the
+  `J_Scale` / `Stage` nodes from 0.3 / 0.18 (idle) to 0.5 (full thrust), so a jet's size follows the throttle.
+- `RecreateTrails`: locators named `TRAIL...` are the engine trails, `CONTRAIL...` the contrails (`...SAIL...` the solar
+  ships' sail trails); `ENGINEGLOW` and `ENGINEMESHVFXREF` nodes are found by name as well; `EngineEffectMeshLocator_%i`
+  nodes are added for the effect meshes.
+- `TkRotationComponentData` spinners and `cGcCustomisationThrusterEffects` (the player's chosen thruster effect) sit
+  beside this.
+
+The jet texture `TEXTURES/EFFECTS/SHIP/ENGINE_JET.DDS` is a streaked gradient along u (bright at the nozzle), the glow
+discs `TEXTURES/COMMON/SPACECRAFT/SHARED/ENGINEGLOW.*.DDS` soft discs. A fighter's jet cone is about 0.6 m long at full
+thrust (its mesh is scaled 0.24 under Stage2 0.5 under J_Scale 0.5); the long streaks seen in flight are the trails.
+
 ## Tools that read these formats
 
 monkeyman192/HGPAKTool (the archive spec), monkeyman192/MBINCompiler (libMBIN, the template layouts; v7.10.0.1 for 7.10),
