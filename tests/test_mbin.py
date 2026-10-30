@@ -131,3 +131,46 @@ class GeometryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AnimationTests(unittest.TestCase):
+    def test_animation_file(self):
+        from nms import animation
+        import math
+        q = (0.0, math.sin(math.radians(30)), 0.0, math.cos(math.radians(30)))
+        frames = [{"rotations": [(0, 0, 0, 1)], "translations": [(0, 0, 0)]}, {"rotations": [q], "translations": [(1, 2, 3)]}]
+        still = {"rotations": [(0, 0, 0, 1)], "scales": [(1, 1, 1), (2, 2, 2)], "translations": [(5, 0, 0)]}
+        data = fixtures.make_animation([("WingJNT", 0, 1, 0), ("StaticJNT", 1, 0, 1)], frames, still)
+        an = animation.Animation(data)
+        self.assertEqual(an.nodes, ["WingJNT", "StaticJNT"])
+        self.assertEqual(an.frame_count, 2)
+        self.assertEqual(an.animated("WingJNT"), (True, False, True))
+        self.assertEqual(an.animated("StaticJNT"), (False, False, False))
+        track = an.track("WingJNT")
+        self.assertEqual(len(track), 2)
+        rot, sc, tr = track[1]
+        self.assertAlmostEqual(rot[1], q[1], places=3)
+        self.assertAlmostEqual(rot[3], q[3], places=3)
+        self.assertEqual(sc, (2, 2, 2))
+        self.assertEqual(tr, (1, 2, 3))
+        rot, sc, tr = an.track("StaticJNT")[0]
+        self.assertEqual(rot, (0.0, 0.0, 0.0, 1.0))
+        self.assertEqual(tr, (5, 0, 0))
+        self.assertIsNone(an.track("nothing"))
+
+    def test_entity_components(self):
+        from nms import animation
+        data = fixtures.make_entity(anims=[("", "MODELS/X/ANIMS/X_IDLE.ANIM.MBIN", 0), ("TAKEOFF", "MODELS/X/ANIMS/X_TAKEOFF.ANIM.MBIN", 2),
+                                           ("GEARUP", "MODELS/X/ANIMS/GEAR.ANIM.MBIN", 0)], rotation=((0, 1, 0), 0.5))
+        comps = animation.entity_components(data)
+        rot = comps[animation.HASH_ROTATION_COMPONENT]
+        self.assertEqual(rot["axis"], [0, 1, 0])
+        self.assertAlmostEqual(rot["speed"], 0.5)
+        comp = comps[animation.HASH_ANIMATION_COMPONENT]
+        self.assertEqual(comp["idle"]["filename"], "MODELS/X/ANIMS/X_IDLE.ANIM.MBIN")
+        self.assertEqual([a["anim"] for a in comp["anims"]], ["TAKEOFF", "GEARUP"])
+        self.assertEqual(animation.flight_loop(comp)["filename"], "MODELS/X/ANIMS/X_IDLE.ANIM.MBIN")
+        self.assertEqual(animation.transition(comp, "takeoff")["anim"], "TAKEOFF")
+        self.assertIsNone(animation.transition(comp, "LANDING"))
+        gear_only = fixtures.make_entity(anims=[("GEARUP", "MODELS/X/ANIMS/GEAR.ANIM.MBIN", 0)])
+        self.assertIsNone(animation.flight_loop(animation.entity_components(gear_only)[animation.HASH_ANIMATION_COMPONENT]))

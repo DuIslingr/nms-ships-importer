@@ -12,9 +12,11 @@ come from the parts' gun references, exhausts from their thruster trails; each k
 default build.
 """
 import json
+import math
 import os
 import re
 import shutil
+import struct
 import sys
 import time
 
@@ -22,7 +24,7 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
-from nms import descriptors, geometry, hgpak, mbin, scene, textures   # noqa: E402
+from nms import animation, descriptors, geometry, hgpak, mbin, scene, textures   # noqa: E402
 import glb   # noqa: E402
 
 MOD_ID = "nms_ships"
@@ -31,6 +33,8 @@ UNITS_PER_METRE = 20.0          # the remake's game units
 MAX_VARIANTS = 4                # variants of one option over its nested groups
 MAX_PARTS_PER_SLOT = 14
 MAX_TEXTURE = 2048
+TRANSITIONS = "pose"            # "pose": the ship in its flying pose (the end of its take-off), "loop": take-off and landing looped, "rest": as modelled
+ANIMATIONS = True
 
 SPACECRAFT = "models/common/spacecraft/"
 CLASSES = {
@@ -53,6 +57,12 @@ SKIP_MATERIAL_CLASSES = {2, 12, 22, 24}   # Additive (engine jets: the remake dr
 EMISSIVE_CLASSES = {18, 19}               # Glow, GlowTranslucent
 TRANSLUCENT_CLASSES = {62, 63, 15}        # Translucent, TranslucentPostScene, DoubleSided
 SKIP_NODES = re.compile(r"(landinggear|landing_gear|frontpad|leftpad|rightpad|backpad|_gear\b|shadowmesh)", re.I)
+WEAPON_SCENES = re.compile(r"/shared/weapons/", re.I)   # the ships' gun models: the remake draws its own weapons on the mounts
+
+
+def under_weapon(placed):
+    """Whether a placed node sits inside a gun's referenced scene."""
+    return any(n.type == "REFERENCE" and WEAPON_SCENES.search(n.scenegraph) for n in placed.chain)
 
 PALETTE = [("white", "Snow White", "#F2F2F2"), ("silver", "Silver", "#B8BCC2", 0.9, 0.7), ("grey", "Graphite", "#5A5E63"),
            ("black", "Jet", "#1E1E22"), ("red", "Vermilion", "#C8321E"), ("orange", "Amber", "#E07B1A"),
@@ -234,10 +244,11 @@ class Part:
         self.mounts = []
         self.triangles = 0
         self.bounds = None
+        self.animated = False
 
 
-def locator_mounts(asm, scale):
-    """Weapon and exhaust mounts of an assembled subtree, in game units."""
+def locator_mounts(asm, scale, overrides=None):
+    """Weapon and exhaust mounts of an assembled subtree, in game units (in the flying pose when `overrides` has one)."""
     mounts = []
     k = scale * UNITS_PER_METRE
     seen = set()
@@ -249,7 +260,7 @@ def locator_mounts(asm, scale):
             break
 
     def add(p, slot_type):
-        pos = tuple(round(float(x) * k, 1) for x in p.position)
+        pos = tuple(round(float(x) * k, 1) for x in (p.world(overrides)[:3, 3] if overrides else p.position))
         if pos in seen:
             return
         seen.add(pos)
@@ -283,6 +294,7 @@ class KitBuilder:
         self.max_variants = max_variants
         self.max_parts = max_parts
         self.descriptor_cache = {}
+        self.anim_cache = {}
 
     def pick(self, scene_path, descriptor_bytes):
         """The chooser for a part scene's own descriptor: its likeliest option at every level."""
@@ -417,15 +429,120 @@ class KitBuilder:
                 self.report.warn(f"{kit_id}: no parts built; skipped")
         return results
 
+    # -- animation --
+
+    def animations_for(self, asm):
+        """What moves in an assembled part, from the entities its nodes attach: `overrides` {node: local matrix}
+        (the flying pose), `loop` [(node, rotations, translations, scales)] per frame lists (None = not animated),
+        `spins` [(node, axis, turns per second)], `transitions` {name: tracks} (take-off, landing, for later)."""
+        out = {"overrides": {}, "loop": [], "spins": [], "transitions": {}}
+        if not ANIMATIONS:
+            return out
+        for placed in asm.attachments:
+            if under_weapon(placed):
+                continue
+            ent = scene.game_path(placed.node.attrs["ATTACHMENT"])
+            if not self.banks.exists(ent):
+                continue
+            try:
+                comps = animation.entity_components(self.banks.read(ent))
+            except mbin.MBINError:
+                continue
+            rot = comps.get(animation.HASH_ROTATION_COMPONENT)
+            if rot and abs(rot["speed"]) > 1e-6:
+                out["spins"].append((placed.node, rot["axis"], rot["speed"]))
+            comp = comps.get(animation.HASH_ANIMATION_COMPONENT)
+            if not comp:
+                continue
+            nodes = {n.name.lower(): n for n in placed.scene.root.walk()}
+            loop = animation.flight_loop(comp)
+            if loop:
+                an = self.animation_file(loop["filename"])
+                if an:
+                    for name in an.nodes:
+                        node = nodes.get(name.lower())
+                        if node is None:
+                            continue
+                        r_on, s_on, t_on = an.animated(name)
+                        if not (r_on or s_on or t_on):
+                            continue
+                        track = an.track(name)
+                        out["loop"].append((node, [t[0] for t in track] if r_on else None, [t[2] for t in track] if t_on else None,
+                                            [t[1] for t in track] if s_on else None))
+            for kind in ("TAKEOFF", "LANDING"):
+                tr = animation.transition(comp, kind)
+                if not tr:
+                    continue
+                an = self.animation_file(tr["filename"])
+                if not an or not an.frames:
+                    continue
+                tracks = []
+                for name in an.nodes:
+                    node = nodes.get(name.lower())
+                    if node is None:
+                        continue
+                    r_on, s_on, t_on = an.animated(name)
+                    if not (r_on or s_on or t_on):
+                        continue
+                    track = an.track(name)
+                    tracks.append((node, [t[0] for t in track] if r_on else None, [t[2] for t in track] if t_on else None,
+                                   [t[1] for t in track] if s_on else None))
+                    if kind == "TAKEOFF" and TRANSITIONS == "pose":
+                        rot, sc, trn = track[-1]
+                        t0 = node.transform
+                        q = rot if rot else glb.quaternion_from_matrix(geometry.transform_matrix(t0)[:3, :3] / np.maximum(np.linalg.norm(geometry.transform_matrix(t0)[:3, :3], axis=0), 1e-9))
+                        out["overrides"][node] = animation.local_matrix(q, sc if sc else t0["scale"], trn if trn else t0["trans"])
+                if tracks:
+                    out["transitions"][kind.lower()] = tracks
+        return out
+
+    def animation_file(self, filename):
+        f = scene.game_path(filename)
+        if f in self.anim_cache:
+            return self.anim_cache[f]
+        an = None
+        if self.banks.exists(f):
+            try:
+                an = animation.Animation(self.banks.read(f))
+            except (mbin.MBINError, struct.error) as e:
+                self.report.note(f"{f}: {e}")
+        self.anim_cache[f] = an
+        return an
+
+    # -- building --
+
     def build_part(self, scene_path, d, part, scale):
         asm = scene.Assembler(self.banks, descriptors.chooser(d, part.picks), pick=self.pick)
         asm.assemble_node(scene_path, part.option.name, within=part.within)
+        anims = self.animations_for(asm)
+        overrides = anims["overrides"]
+        animated = {node for node, *_ in anims["loop"]} | {node for node, *_ in anims["spins"]}
+        if TRANSITIONS == "loop":
+            for tracks in anims["transitions"].values():
+                animated |= {node for node, *_ in tracks}
         w = glb.Writer()
+        glb_nodes = {}    # scene node -> glb node index (the hierarchy of the animated parts)
+        chains = {}       # scene node -> its chain (root .. node), from the placed meshes
         tris = 0
         lo, hi = np.array([1e9] * 3), np.array([-1e9] * 3)
-        for i, placed in enumerate(scene.finest_meshes(asm.meshes)):
-            if SKIP_NODES.search(placed.path):
-                continue
+
+        def ensure(chain):
+            """GLB nodes for a chain of scene nodes (a scene root contributes no transform)."""
+            parent = None
+            for i, n in enumerate(chain):
+                if n in glb_nodes:
+                    parent = glb_nodes[n]
+                    continue
+                if n is n.scene.root:
+                    M = np.identity(4)
+                else:
+                    M = overrides.get(n, n.local)
+                t, r, sc = glb.trs(M)
+                parent = glb_nodes[n] = w.add_node(n.name if n is not n.scene.root else n.name.rsplit("\\", 1)[-1], parent, t, r, sc)
+            return parent
+
+        drawn = [p for p in asm.meshes if not SKIP_NODES.search(p.path) and not under_weapon(p)]
+        for i, placed in enumerate(scene.finest_meshes(drawn)):
             g = placed.scene.geometry
             name, cls = self.materials.name_for(placed)
             if cls in SKIP_MATERIAL_CLASSES:
@@ -433,24 +550,83 @@ class KitBuilder:
             m = g.mesh(placed.node.name)
             if not len(m.indices):
                 continue
-            pos = geometry.apply(placed.matrix, m.positions)
-            nrm = geometry.apply_normals(placed.matrix, m.normals)
-            idx = m.indices[:, ::-1] if np.linalg.det(placed.matrix[:3, :3]) < 0 else m.indices
-            lo, hi = np.minimum(lo, pos.min(0)), np.maximum(hi, pos.max(0))
             role = name.rsplit("_", 1)[1]
             mat = w.material(name, alpha_mode="BLEND" if role == "glass" else None, double_sided=cls == 15)
-            w.add_mesh(f"{part.id}_{i:03d}_{placed.node.name}", pos, nrm, m.uvs, idx, mat)
+            moving = [n for n in placed.chain if n in animated]
+            if moving:
+                for k in range(len(placed.chain)):
+                    chains.setdefault(placed.chain[k], placed.chain[: k + 1])
+                parent = ensure(placed.chain[:-1])
+                M = overrides.get(placed.node, placed.node.local)
+                t, r, sc = glb.trs(M)
+                idx = m.indices[:, ::-1] if np.linalg.det(placed.world(overrides)[:3, :3]) < 0 else m.indices
+                glb_nodes[placed.node] = w.add_mesh(f"{part.id}_{i:03d}_{placed.node.name}", m.positions, m.normals, m.uvs, idx, mat,
+                                                    parent=parent, translation=t, rotation=r, scale=sc)
+                world = placed.world(overrides)
+                pos = geometry.apply(world, m.positions)
+            else:
+                world = placed.world(overrides) if overrides else placed.matrix
+                pos = geometry.apply(world, m.positions)
+                nrm = geometry.apply_normals(world, m.normals)
+                idx = m.indices[:, ::-1] if np.linalg.det(world[:3, :3]) < 0 else m.indices
+                w.add_mesh(f"{part.id}_{i:03d}_{placed.node.name}", pos, nrm, m.uvs, idx, mat)
+            lo, hi = np.minimum(lo, pos.min(0)), np.maximum(hi, pos.max(0))
             tris += m.triangle_count
         if tris == 0:
             return False
+        self.write_animations(w, anims, glb_nodes, chains, ensure, overrides)
         part.triangles = tris
         part.bounds = (lo.tolist(), hi.tolist())
-        part.mounts = locator_mounts(asm, scale)
+        part.mounts = locator_mounts(asm, scale, overrides)
+        part.animated = bool(w.animations)
         for ref in asm.missing:
             self.report.warn(f"{part.id}: referenced scene missing: {ref}")
         os.makedirs(os.path.join(self.out, "parts"), exist_ok=True)
         w.save(os.path.join(self.out, part.model))
         return True
+
+    def write_animations(self, w, anims, glb_nodes, chains, ensure, overrides):
+        """The flight loop (the entities' idle loops and the spinning parts) as the GLB's first animation, the
+        take-off and landing after it (or as the first, looped, with TRANSITIONS "loop")."""
+        def channels_of(tracks, offset=0.0):
+            chans = []
+            for node, rots, trans, scales in tracks:
+                if node not in glb_nodes:
+                    if node not in chains:
+                        continue   # nothing drawn moves with this node
+                    ensure(chains[node])
+                n = len(rots or trans or scales)
+                times = [offset + k / animation.FPS for k in range(n)]
+                if rots:
+                    chans.append((glb_nodes[node], "rotation", times, rots))
+                if trans:
+                    chans.append((glb_nodes[node], "translation", times, trans))
+                if scales:
+                    chans.append((glb_nodes[node], "scale", times, scales))
+            return chans
+        flight = channels_of(anims["loop"])
+        for node, axis, speed in anims["spins"]:
+            if node not in glb_nodes:
+                if node not in chains:
+                    continue
+                ensure(chains[node])
+            _, q0, _ = glb.trs(overrides.get(node, node.local))
+            period = 1.0 / abs(speed)
+            sign = 1.0 if speed > 0 else -1.0
+            keys = [(k / 8.0 * period, glb.quaternion_multiply(q0, glb.axis_angle(axis, sign * k / 8.0 * 2 * math.pi))) for k in range(9)]
+            flight.append((glb_nodes[node], "rotation", [t for t, _ in keys], [q for _, q in keys]))
+        if TRANSITIONS == "loop" and anims["transitions"]:
+            chans, offset = [], 0.0
+            for kind in ("takeoff", "landing"):
+                tracks = anims["transitions"].get(kind)
+                if tracks:
+                    chans += channels_of(tracks, offset)
+                    offset += max(len(r or t or s) for _, r, t, s in tracks) / animation.FPS
+            w.add_animation("flight", chans + flight)
+        elif flight:
+            w.add_animation("flight", flight)
+        for kind, tracks in anims["transitions"].items():
+            w.add_animation(kind, channels_of(tracks))
 
 
 # --- the mod ----------------------------------------------------------------------------------------------------------

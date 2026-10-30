@@ -1,6 +1,7 @@
 """Synthetic game files for the tests: HGPAK archives and MBIN scenes, descriptors, geometry and materials written with
 the same layouts the readers expect. Nothing here comes from the game."""
 import hashlib
+import math
 import os
 import struct
 import sys
@@ -271,3 +272,88 @@ def make_dds_dxt1(width=8, height=8, rgb=(255, 128, 0)):
     struct.pack_into("<II4s", header, 76, 32, 0x4, b"DXT1")
     struct.pack_into("<I", header, 108, 0x1000)
     return bytes(header) + block * ((width // 4) * (height // 4))
+
+
+# --- animations and entities ----------------------------------------------------------------------------------------
+
+def pack_quaternion(q):
+    """libMBIN's packed quaternion (3 x u16) for (x, y, z, w) with w >= 0: w is the dropped component."""
+    x, y, z, w = q
+    if w < 0:
+        x, y, z, w = -x, -y, -z, -w
+    scale = 0x3FFF * math.sqrt(2.0)
+    cx = int(round(x * scale)) + 0x3FFF
+    cy = int(round(y * scale)) + 0x3FFF
+    cz = int(round(z * scale)) + 0x3FFF
+    # drop code 0 (w): top bits of cx (bit 15) and cy (bit 15) both clear
+    return struct.pack("<HHH", cx & 0x7FFF, cy & 0x7FFF, cz & 0xFFFF)
+
+
+def make_animation(nodes, frames, still):
+    """An .ANIM.MBIN: nodes = [(name, rot_index, scale_index, trans_index)]; frames = [{"rotations": [...], "scales":
+    [...], "translations": [...]}] (quaternions xyzw, vec3s); still = the same for the still frame."""
+    w = MbinWriter(0x8E7F1986)
+    at = w.alloc(0x60)
+
+    def frame(o, f):
+        rots = f.get("rotations", [])
+        data = b"".join(pack_quaternion(q) for q in rots)
+        off = w.alloc(len(data) or 1, 2)
+        w.buf[off:off + len(data)] = data
+        w.header(o, off, 3 * len(rots))
+        w.vec4s(o + 0x10, [tuple(v) + (1.0,) for v in f.get("scales", [])])
+        w.vec4s(o + 0x20, [tuple(v) + (1.0,) for v in f.get("translations", [])])
+    frame(at, still)
+    fb = w.alloc(0x30 * len(frames))
+    w.header(at + 0x30, fb, len(frames))
+    for i, f in enumerate(frames):
+        frame(fb + 0x30 * i, f)
+    nb = w.alloc(0x20 * len(nodes))
+    w.header(at + 0x40, nb, len(nodes))
+    for i, (name, ri, si, ti) in enumerate(nodes):
+        w.string(nb + 0x20 * i, name)
+        w.put(nb + 0x20 * i + 0x10, "<iii", ri, si, ti)
+    w.put(at + 0x50, "<ii", len(frames), len(nodes))
+    return w.done()
+
+
+def make_entity(anims=None, rotation=None):
+    """A .ENTITY.MBIN (TkAttachmentData) with an animation component (anims = [(name, filename, type)], the first the
+    idle) and / or a rotation component (axis, speed)."""
+    w = MbinWriter(0x6874FF60)
+    at = w.alloc(0x40)
+    w.header(at, 0, 0)
+    comps = [c for c in (("anim", anims), ("rot", rotation)) if c[1]]
+    cb = w.alloc(0x20 * len(comps))
+    w.header(at + 0x10, cb, len(comps))
+    for i, (kind, value) in enumerate(comps):
+        e = cb + 0x20 * i
+        if kind == "rot":
+            t = w.alloc(0x20)
+            w.put(e, "<qII", t - e, 0x8EB35CA7, 0xEEEEEE01)
+            axis, speed = value
+            w.put(t, "<4f", *axis, 1.0)
+            w.put(t + 0x10, "<fiBB", speed, -1, 1, 0)
+        else:
+            t = w.alloc(0x1A0)
+            w.put(e, "<qII", t - e, 0x573A9AA9, 0xEEEEEE01)
+
+            def anim_data(o, a):
+                name, filename, typ = a
+                w.fixed(o + 0x50, name, 0x10)
+                w.string(o + 0x70, filename)
+                w.put(o + 0xB8, "<I", typ)
+                w.put(o + 0xDC, "<f", 1.0)
+                w.put(o + 0x120, "<B", 1)
+                for off in (0x20, 0x30, 0x60, 0x80, 0x90):
+                    w.header(o + off, 0, 0)
+            anim_data(t, value[0])
+            rest = value[1:]
+            w.header(t + 0x138, 0, 0)
+            ab = w.alloc(0x128 * len(rest))
+            w.header(t + 0x148, ab, len(rest))
+            for j, a in enumerate(rest):
+                anim_data(ab + 0x128 * j, a)
+            for off in (0x158, 0x168, 0x178, 0x188):
+                w.header(t + off, 0, 0)
+    return w.done()

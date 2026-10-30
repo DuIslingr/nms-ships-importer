@@ -1,6 +1,7 @@
 """The mod builder on a synthetic game: a procedural class with two slots and a nested option, materials with textures,
 gun and thruster locators; checks shipkits.json, ships.json, the GLB parts, the mounts and the maps. No game files."""
 import json
+import math
 import os
 import struct
 import sys
@@ -51,13 +52,13 @@ def synthetic_game(folder):
         "HQLight_Mat", 19, "TEXTURES/COMMON/SPACECRAFT/TEST/GLOW.DDS", colour=(0.2, 0.9, 1, 1))
     files["models/common/spacecraft/fighters/parts/cockpita/jet.material.mbin"] = fixtures.make_material("EngineJet_Mat", 2)
 
-    def part(name, meshes, extra_children=(), material="primary"):
+    def part(name, meshes, extra_children=(), material="primary", joint_meshes=()):
         base = f"models/common/spacecraft/fighters/parts/{name}"
         g, d = fixtures.make_geometry(meshes)
         files[base + ".geometry.mbin.pc"] = g
         files[base + ".geometry.data.mbin.pc"] = d
         children = [{"name": mid.title(), "type": "MESH", "attrs": {"LODLEVEL": "0", "MATERIAL": f"MODELS\\COMMON\\SPACECRAFT\\FIGHTERS\\PARTS\\COCKPITA\\{material.upper()}.MATERIAL.MBIN"}}
-                    for mid in meshes if not mid.endswith("LOD1")]
+                    for mid in meshes if not mid.endswith("LOD1") and mid not in joint_meshes]
         children.extend({"name": mid.title(), "type": "MESH", "attrs": {"LODLEVEL": "1", "MATERIAL": "MODELS\\COMMON\\SPACECRAFT\\FIGHTERS\\PARTS\\COCKPITA\\PRIMARY.MATERIAL.MBIN"}}
                         for mid in meshes if mid.endswith("LOD1"))
         children.extend(extra_children)
@@ -76,14 +77,36 @@ def synthetic_game(folder):
                        {"name": "RefEngine2", "type": "REFERENCE", "attrs": {"SCENEGRAPH": glow}, "transform": ((0, 180, 0), (1, 1, 1), (-0.5, 1, -2)),
                         "children": [{"name": "Trail", "type": "LOCATOR", "transform": ((0, 0, 0), (1, 1, 1), (0, 0, 0.3))}]},
                        {"name": "EngineLight", "type": "LIGHT", "attrs": {"COL_R": "0.600000", "COL_G": "0.100000", "COL_B": "1.000000"}}]
-    engine = part("engine", {"ENGINELOD0": box(0, 1, -2, 0.7)}, engine_children)
+    files["models/common/spacecraft/fighters/parts/engine/entities/spin.entity.mbin"] = fixtures.make_entity(rotation=((0, 0, 1), 0.5))
+    engine_children.append({"name": "TurbineLOD0", "type": "MESH", "attrs": {"LODLEVEL": "0", "ATTACHMENT": "MODELS\\COMMON\\SPACECRAFT\\FIGHTERS\\PARTS\\ENGINE\\ENTITIES\\SPIN.ENTITY.MBIN",
+                                                                             "MATERIAL": "MODELS\\COMMON\\SPACECRAFT\\FIGHTERS\\PARTS\\COCKPITA\\PRIMARY.MATERIAL.MBIN"},
+                            "transform": ((0, 0, 0), (1, 1, 1), (0, 1, -2.8))})
+    engine = part("engine", {"ENGINELOD0": box(0, 1, -2, 0.7), "TURBINELOD0": box(0, 0, 0, 0.3)}, engine_children)
     gun = part("gun", {"GUNLOD0": box(0, 0, 0, 0.1)})
+    files["models/common/spacecraft/shared/weapons/gun.scene.mbin"] = files.pop("models/common/spacecraft/fighters/parts/gun.scene.mbin")
+    for suffix in (".geometry.mbin.pc", ".geometry.data.mbin.pc"):
+        files["models/common/spacecraft/shared/weapons/gun" + suffix] = files.pop("models/common/spacecraft/fighters/parts/gun" + suffix)
+    gun = "MODELS\\COMMON\\SPACECRAFT\\SHARED\\WEAPONS\\GUN.SCENE.MBIN"
+    acc = part("acc", {"ACCLOD0": box(0, 2, 0, 0.3)})
+    # the wings' flap: a joint with a mesh, an idle loop nodding it and a take-off swinging it 90 degrees for flight
+    q90 = (0.0, 0.0, math.sin(math.radians(45)), math.cos(math.radians(45)))
+    files["models/common/spacecraft/fighters/parts/wingsa/anims/idle.anim.mbin"] = fixtures.make_animation(
+        [("FlapJNT", 0, 0, 0)], [{"rotations": [(0, 0, 0, 1)]}, {"rotations": [(0, 0, math.sin(0.1), math.cos(0.1))]}, {"rotations": [(0, 0, 0, 1)]}],
+        {"scales": [(1, 1, 1)], "translations": [(3, 1, -1)]})
+    files["models/common/spacecraft/fighters/parts/wingsa/anims/takeoff.anim.mbin"] = fixtures.make_animation(
+        [("FlapJNT", 0, 0, 0)], [{"rotations": [(0, 0, 0, 1)]}, {"rotations": [q90]}], {"scales": [(1, 1, 1)], "translations": [(3, 1, -1)]})
+    files["models/common/spacecraft/fighters/parts/wingsa/entities/wings.entity.mbin"] = fixtures.make_entity(
+        anims=[("", "MODELS/COMMON/SPACECRAFT/FIGHTERS/PARTS/WINGSA/ANIMS/IDLE.ANIM.MBIN", 0),
+               ("TAKEOFF", "MODELS/COMMON/SPACECRAFT/FIGHTERS/PARTS/WINGSA/ANIMS/TAKEOFF.ANIM.MBIN", 2)])
+    wing_children = [{"name": "Data", "type": "LOCATOR", "attrs": {"ATTACHMENT": "MODELS\\COMMON\\SPACECRAFT\\FIGHTERS\\PARTS\\WINGSA\\ENTITIES\\WINGS.ENTITY.MBIN"}},
+                     {"name": "FlapJNT", "type": "JOINT", "transform": ((0, 0, 0), (1, 1, 1), (3, 1, -1)),
+                      "children": [{"name": "FlapLOD0", "type": "MESH", "attrs": {"LODLEVEL": "0", "MATERIAL": "MODELS\\COMMON\\SPACECRAFT\\FIGHTERS\\PARTS\\COCKPITA\\PRIMARY.MATERIAL.MBIN"}}]}]
     wings_a = part("wingsa", {"WINGSALOD0": (np.array([[-4, 1, 0], [4, 1, 0], [0, 1, -1], [0, 1.2, 0]], np.float32), np.zeros((4, 2), np.float32),
-                                              np.array([[0, 1, 0]] * 4, np.float32), np.array([[0, 1, 2], [0, 3, 1]], np.uint32))},
+                                              np.array([[0, 1, 0]] * 4, np.float32), np.array([[0, 1, 2], [0, 3, 1]], np.uint32)),
+                              "FLAPLOD0": box(1, 0, 0, 0.2)},
                    [{"name": "Gun1Ref", "type": "REFERENCE", "attrs": {"SCENEGRAPH": gun}, "transform": ((0, 0, 0), (1, 1, 1), (3, 1, 0))},
                     {"name": "Gun1Ref1", "type": "REFERENCE", "attrs": {"SCENEGRAPH": gun}, "transform": ((0, 0, 0), (1, 1, 1), (-3, 1, 0))},
-                    {"name": "Contrail1", "type": "LOCATOR"}])
-    acc = part("acc", {"ACCLOD0": box(0, 2, 0, 0.3)})
+                    {"name": "Contrail1", "type": "LOCATOR"}] + wing_children, joint_meshes={"FLAPLOD0"})
     proc = "models/common/spacecraft/fighters/fighter_proc"
     files[proc + ".scene.mbin"] = fixtures.make_scene({
         "name": "MODELS\\COMMON\\SPACECRAFT\\FIGHTERS\\FIGHTER_PROC", "type": "MODEL", "attrs": {},
@@ -142,15 +165,34 @@ class BuildTests(unittest.TestCase):
             doc, _ = glb.read(os.path.join(out, by_id["fighter-wings_a_acc_b1"]["model"]))
             names = [m["name"] for m in doc["meshes"]]
             self.assertTrue(any("Acclod0" in n for n in names), names)
-            self.assertTrue(any("Gunlod0" in n for n in names), names)
+            self.assertFalse(any("Gunlod0" in n for n in names), names)   # a weapon scene: the remake draws its own guns
             acc = next(doc["accessors"][p["primitives"][0]["attributes"]["POSITION"]] for p in doc["meshes"] if "Acclod0" in p["name"])
             self.assertAlmostEqual(acc["max"][0], -0.7, places=2)   # the accessory box at (0, 2, 0) +- 0.3 turned 90 about Z (x = -2) and moved by its node (1, 0, 0)
             doc, _ = glb.read(os.path.join(out, by_id["fighter-wings_a"]["model"]))
             self.assertFalse(any("Acclod0" in m["name"] for m in doc["meshes"]))
-            # the engine part skips the additive jet, keeps the glow as an emissive material
+            # the engine part skips the additive jet, keeps the glow as an emissive material, and its turbine spins:
+            # a 2 s rotation loop (0.5 turns per second) about the mesh's own Z, the mesh under a node at its place
             doc, _ = glb.read(os.path.join(out, by_id["fighter-engine_a"]["model"]))
             self.assertFalse(any("Jetlod0" in m["name"] for m in doc["meshes"]))
             self.assertTrue(any(m["name"].endswith("_lights") for m in doc["materials"]))
+            self.assertEqual([a["name"] for a in doc["animations"]], ["flight"])
+            chan = doc["animations"][0]["channels"][0]
+            self.assertEqual(chan["target"]["path"], "rotation")
+            turbine = doc["nodes"][chan["target"]["node"]]
+            self.assertTrue(turbine["name"].endswith("TurbineLOD0"))
+            np.testing.assert_allclose(turbine["translation"], [0.0, 1.0, -2.8], atol=1e-5)
+            times = doc["accessors"][doc["animations"][0]["samplers"][0]["input"]]
+            self.assertAlmostEqual(times["max"][0], 2.0, places=5)
+            # the wings' flap: posed for flight (its take-off's last frame, 90 degrees about Z) and nodding in the loop
+            doc, _ = glb.read(os.path.join(out, by_id["fighter-wings_a"]["model"]))
+            flap = next(n for n in doc["nodes"] if n["name"] == "FlapJNT")
+            self.assertAlmostEqual(flap["rotation"][2], math.sin(math.radians(45)), places=3)
+            np.testing.assert_allclose(flap["translation"], [3.0, 1.0, -1.0], atol=1e-5)
+            self.assertEqual([a["name"] for a in doc["animations"]], ["flight", "takeoff"])   # the loop first (the remake plays it), the take-off kept after it
+            self.assertEqual(doc["animations"][0]["channels"][0]["target"]["node"], doc["nodes"].index(flap))
+            self.assertAlmostEqual(doc["accessors"][doc["animations"][0]["samplers"][0]["input"]]["max"][0], 2 / 30, places=5)
+            mesh_node = next(n for n in doc["nodes"] if n["name"].endswith("FlapLOD0"))
+            self.assertIn(doc["nodes"].index(mesh_node), flap["children"])
             # materials and maps
             mats = {m["material"]: m for m in kit["materials"]}
             self.assertEqual(mats["mat_0000_paint1"]["diffuse"], "maps/test_primary_d.png")

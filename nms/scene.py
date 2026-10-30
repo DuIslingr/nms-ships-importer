@@ -112,11 +112,23 @@ class Scene:
 
 
 class Placed:
-    """A mesh (or locator / light / reference) placed in the assembled model's frame."""
-    __slots__ = ("node", "matrix", "scene", "path")
+    """A mesh (or locator / light / reference / attachment) placed in the assembled model's frame. `chain` is every
+    node from the walk's root down to this one (scene roots included), so a world matrix can be built again with
+    some nodes' transforms replaced (an animation's pose: `world`)."""
+    __slots__ = ("node", "matrix", "scene", "path", "chain")
 
-    def __init__(self, node, matrix, scene, path):
-        self.node, self.matrix, self.scene, self.path = node, matrix, scene, path
+    def __init__(self, node, matrix, scene, path, chain=()):
+        self.node, self.matrix, self.scene, self.path, self.chain = node, matrix, scene, path, chain
+
+    def world(self, overrides=None):
+        """The world matrix from the chain; `overrides` maps a node to the local matrix to use instead of its own."""
+        M = np.identity(4)
+        for n in self.chain:
+            if overrides and n in overrides:
+                M = M @ overrides[n]
+            elif n is not n.scene.root:
+                M = M @ n.local
+        return M
 
     @property
     def position(self):
@@ -147,6 +159,7 @@ class Assembler:
         self.locators = []
         self.lights = []
         self.references = []
+        self.attachments = []   # nodes with an ATTACHMENT (entity file) attribute
         self.missing = []
 
     def scene(self, path):
@@ -159,7 +172,7 @@ class Assembler:
     def assemble(self, path, matrix=None, depth=0, trail=""):
         s = self.scene(path)
         self.choosers.setdefault(s.path, None)   # the root scene's options are `choose`'s call, not its own descriptor's
-        self._walk(s.root, np.identity(4) if matrix is None else matrix, s, depth, trail or s.root.name)
+        self._walk(s.root, np.identity(4) if matrix is None else matrix, s, depth, trail or s.root.name, ())
         return self
 
     def assemble_node(self, path, name, matrix=None, within=None):
@@ -180,7 +193,8 @@ class Assembler:
             n = n.parent
         for n in reversed(chain[1:]):
             M = M @ n.local
-        self._walk(node, M, s, 0, s.root.name + "/" + "/".join(x.name for x in reversed(chain[:-1])) if len(chain) > 1 else s.root.name)
+        trail = s.root.name + "/" + "/".join(x.name for x in reversed(chain[:-1])) if len(chain) > 1 else s.root.name
+        self._walk(node, M, s, 0, trail, (s.root,) + tuple(reversed(chain[1:])))
         return self
 
     def _chooser(self, scene):
@@ -195,7 +209,7 @@ class Assembler:
         self.choosers[scene.path] = chooser
         return chooser
 
-    def _walk(self, node, parent_matrix, scene, depth, trail):
+    def _walk(self, node, parent_matrix, scene, depth, trail, chain):
         if node.type == "COLLISION":
             return
         if node is not scene.root and not self.choose(node):
@@ -205,24 +219,28 @@ class Assembler:
             return
         M = parent_matrix @ node.local if node is not scene.root else parent_matrix
         path = trail + "/" + node.name if node is not scene.root else trail
+        chain = chain + (node,)
+        placed = Placed(node, M, scene, path, chain)
+        if node.attrs.get("ATTACHMENT"):
+            self.attachments.append(placed)
         if node.type == "MESH":
-            self.meshes.append(Placed(node, M, scene, path))
+            self.meshes.append(placed)
         elif node.type == "LOCATOR" or node.type == "JOINT":
-            self.locators.append(Placed(node, M, scene, path))
+            self.locators.append(placed)
         elif node.type == "LIGHT":
-            self.lights.append(Placed(node, M, scene, path))
+            self.lights.append(placed)
         elif node.type == "REFERENCE":
             ref = node.scenegraph
-            self.references.append(Placed(node, M, scene, path))
+            self.references.append(placed)
             if ref and depth < self.max_depth:
                 if self.banks.exists(ref):
                     sub = self.scene(ref)
-                    self._walk(sub.root, M, sub, depth + 1, path)
+                    self._walk(sub.root, M, sub, depth + 1, path, chain)
                 else:
                     self.missing.append(ref)
             # a REFERENCE node's own children (a procedural model's nested options sit under their parent's reference)
         for c in node.children:
-            self._walk(c, M, scene, depth, path)
+            self._walk(c, M, scene, depth, path, chain)
 
 
 LOD_SUFFIX = re.compile(r"lod\d+", re.I)
