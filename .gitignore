@@ -1,0 +1,10 @@
+# the built mod (No Man's Sky's models and textures: never committed)
+nms_ships/
+nms_ships*.zip
+*_work/
+config.json
+
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db

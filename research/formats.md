@@ -1,0 +1,130 @@
+# No Man's Sky's file formats, as this importer reads them
+
+What was found reading the game's archives directly (NMS 7.10, PC Steam build and the iOS 7.10.4 app, 2026-10-30), with
+the layouts of libMBIN 7.10 (monkeyman192/MBINCompiler) for the templates. Nothing from the game is in this repository.
+
+## HGPAK v2 archives (`GAMEDATA/PCBANKS/NMSARC.*.pak`, `GAMEDATA/IOSBANKS/NMSARC.*.pak`)
+
+```
+0x00  "HGPAK\0\0\0"
+0x08  u64 version = 2
+0x10  u64 file count (the manifest counts)
+0x18  u64 chunk count
+0x20  u8  compressed, 7 bytes pad
+0x28  u64 data offset (16-aligned)
+0x30  file count x { 16 bytes MD5 of the lower-cased posix path, u64 start offset (absolute), u64 decompressed size }
+      chunk count x u64 stored chunk size (compressed archives only)
+      the chunks from the data offset, back to back, each padded to 16 bytes
+```
+
+Entry 0 is the manifest: the file names separated by CRLF, lower case; name *i* belongs to entry *i* + 1. Decompressed,
+the chunks form one stream of C bytes each (the last shorter, and the stream runs past the last file: the real archives
+have padding after it); a file at decompressed offset o = start − data offset spans chunks o // C .. ceil((o + size) / C) − 1.
+A chunk stored at its full decompressed size is raw (texture banks keep incompressible chunks that way). C and the codec
+are the platform's, not in the header:
+
+| Banks | C | Codec | Note |
+|---|---|---|---|
+| PCBANKS, Windows / Linux | 0x10000 | Zstandard | frames start `28 B5 2F FD` |
+| PCBANKS, macOS | 0x20000 | LZ4 block | no magic |
+| IOSBANKS (and Switch) | 0x20000 | Oodle Kraken | first byte 0x8C (Mermaid 0xCC, Leviathan 0x8A / 0xCA) |
+
+The reader finds C from the chunk count (the one of 0x10000 / 0x20000 that covers the data in that many chunks) and the
+codec from the first compressed chunk's bytes, so a copied folder reads the same on any OS. The PC and the iOS banks of
+one version hold the same files (3 437 spacecraft files each, 1 765 of them textures) except the geometry suffix
+(`.geometry.mbin.pc` / `.geometry.data.mbin.pc` vs `.mbin.ios`), and the iOS set keeps the materials in
+`NMSARC.Materials.pak` where the PC set has `NMSARC.MetadataEtc.pak` (so look files up by name across every archive).
+
+## MBIN
+
+```
+0x00  u64 magic: CCCCCCCCCCCCCCCC (MBIN), DDDDDDDDDDDDDDDD (the geometry's .MBIN.PC / .MBIN.IOS)
+0x08  u16 MBIN version (3300 in 7.x)      0x0A u16 compiler header version
+0x0C  u32 name hash of the root template  0x10 u64 template GUID   0x18 u64 timestamp
+0x20  the root template
+```
+
+Fields lie at fixed offsets (libMBIN's declaration order, natural alignment). Dynamic fields are 16-byte headers that
+point elsewhere in the file, relative to the header's own position: a **list** (i64 offset, i32 count, u32 magic with
+low byte 1: `AAAAAA01`, the geometry's `FEFEFE01`), a **string** (`VariableSizeString` / `GcFilename`: i64 offset, i32
+length, u32 magic), a **generic list** of mixed templates (the same header; at the offset, count entries of i64 offset
+from the entry, u32 name hash, u32 `EEEEEE01`). The PC and the iOS builds of one version write byte-identical MBINs.
+
+Root templates by name hash: `TkSceneNodeData` 0x3DB87E47, `TkModelDescriptorList` 0x4026294F, `TkGeometryData`
+0x819C3220, `TkGeometryStreamData` 0x40025754, `TkMaterialData` 0x4737D48A.
+
+| Template | Size | Fields (offset) |
+|---|---|---|
+| TkSceneNodeData | 0x80 | Attributes list 0x00 (of TkSceneNodeAttributeData 0x20: Name fixed 0x10, Value string 0x10), Children list 0x10, InstanceTransforms 0x20, Name string 0x30, Type fixed 0x10 at 0x40, Transform 0x50 (9 floats: RotX Y Z degrees, ScaleX Y Z, TransX Y Z), NameHash u32 0x74, PlatformExclusion i8 0x78 |
+| TkModelDescriptorList | 0x10 | List 0x00 of TkResourceDescriptorList (0x20: Descriptors list 0x00, TypeId fixed 0x10 at 0x10) |
+| TkResourceDescriptorData | 0xC8 | Id fixed 0x20 at 0x00, Children generic list 0x20 (TkModelDescriptorList), ReferencePaths list of strings 0x30, Chance f32 0x40, Name fixed 0x80 at 0x44 |
+| TkGeometryData | 0x160 | PositionVertexLayout 0x00 and VertexLayout 0x20 (TkVertexLayout 0x20: VertexElements list 0x00 of TkVertexElement 0x0C {Instancing u32, Type i32 (GL enum), Normalise u8, Offset u8, SemanticID u8, Size u8}, ElementCount i32 0x18, Stride i32 0x1C), BoundHull lists 0x40 / 0x50 / 0x60, IndexBuffer 0x70, JointBindings 0x80 (0x68 each: InvBindMatrix 16 f, BindRotate 4 f, BindScale 3 f, BindTranslate 3 f), JointExtents 0x90, JointMirrorAxes 0xA0, JointMirrorPairs 0xB0, MeshAABBMax 0xC0, MeshAABBMin 0xD0, MeshBaseSkinMat 0xE0, MeshVertREnd 0xF0, MeshVertRStart 0x100, ProcGenNodeNames 0x110, ProcGenParentId 0x120, SkinMatrixLayout 0x130, StreamMetaDataArray 0x140 (TkMeshMetaData 0x38: IdString 0x00, Hash u64 0x10, IndexDataOffset / Size 0x18 / 0x1C, VertexDataOffset / Size 0x20 / 0x24, VertexPositionDataOffset / Size 0x28 / 0x2C), CollisionIndexCount 0x150, IndexCount 0x154, Indices16Bit 0x158, VertexCount 0x15C |
+| TkGeometryStreamData | 0x10 | StreamDataArray list of TkMeshData (0x48: IdString 0x00, MeshDataStream bytes 0x10, MeshPositionDataStream bytes 0x20, Hash 0x30, IndexDataSize 0x38, VertexDataSize 0x3C, VertexPositionDataSize 0x40) |
+| TkMaterialData | 0xA8 | Flags list of u32 0x00, FxFlags 0x10, Link string 0x20, Metamaterial 0x30, Name 0x40, Samplers list 0x50 (TkMaterialSampler 0x50: MaterialAlternativeId fixed 0x20, Map string 0x20, Name string 0x30, Anisotropy, TextureAddressMode, TextureFilterMode, IsCube, IsSRGB, UseCompression, UseMipMaps), Shader string 0x60, Uniforms_Float list 0x70 (0x30: Values 4 f, ExtendedValues list 0x10, Name string 0x20), Uniforms_UInt 0x80, ShaderMillDataHash i64 0x90, TransparencyLayerID i32 0x98, CastShadow 0x9C, Class u8 0x9D (MaterialClassEnum: 2 Additive, 11 Cutout, 12 Decal, 15 DoubleSided, 18 Glow, 19 GlowTranslucent, 45 Opaque, 62 Translucent), CreateFur, DisableZTest, EnableLodFade, UseShaderMill |
+
+Material flags (MaterialFlagEnum, from 0): `_F01_DIFFUSEMAP` 0, `_F03_NORMALMAP` 2, `_F07_UNLIT` 6, `_F16_DIFFUSE2MAP`
+15, `_F25_MASKS_MAP` 24, `_F36_DOUBLESIDED` 35, `_F53_COLOURISABLE` 52.
+
+## Scenes
+
+The root is a MODEL node (attributes GEOMETRY = the geometry files without their suffix, NUMLODS, LODDIST1..). Under it:
+MESH nodes (BATCHSTARTPHYSI / BATCHSTARTGRAPH, BATCHCOUNT, VERTRSTARTPHYSI / VERTRSTARTGRAPH, VERTRENDPHYSICS /
+VERTRENDGRAPHIC, FIRSTSKINMAT, LASTSKINMAT, LODLEVEL, BOUNDHULLST / ED, AABBMIN / MAX, HASH, MATERIAL = the material
+file (`.../COCKPITD/HQTRIMPRIMARY_MAT.MATERIAL.MBIN`: one file per material in a folder named after the model), MESHLINK),
+LOCATOR, JOINT (JOINTINDEX), LIGHT (FOV, FALLOFF, INTENSITY, RADIUS, COL_R / G / B), COLLISION, REFERENCE (SCENEGRAPH =
+another scene put here). Mesh names map to the geometry's stream ids upper-cased (`FrontPadLOD0` -> `FRONTPADLOD0`).
+
+**The transform** (RotX / Y / Z in degrees, scale, translation): the rotations apply **Z first, then X, then Y**
+(M = Ry · Rx · Rz), checked against the joint bind poses of 322 rotated joints across the ship parts: the only order of
+the six that matches every one of them.
+
+**Procedural models** (`FIGHTER_PROC.SCENE.MBIN` with `FIGHTER_PROC.DESCRIPTOR.MBIN`): the scene holds every option as
+a node named like the descriptor's entry (`_Cockpit_D`, a REFERENCE to the part's scene); nested options are children of
+their parent option's reference node, in the proc scene (`_Wings_A` -> `_Acc_A`). The descriptor is a tree of groups
+(type id = the slot, `_WINGS_`) with options (id `_WINGS_F`, name `_Wings_F` = the node, a chance weight, reference
+paths, and the groups that exist only under this option). A part's own scene may have a descriptor of its own
+(`WINGS_F.DESCRIPTOR.MBIN`) for its optional details (`_SubWings_E`: locators holding references); both apply. Options
+named `_..._NONE` / `_..._NULL` show nothing and have no node.
+
+Classes and their trees (7.10): fighters `_COCKPIT_` 5 / `_ENGINE_` 3 / `_WINGS_` 10 (nested `_ACC_`, `_ANOSE_`);
+dropships (haulers) `_COCKPIT_` 9 / `_HULL_` 1 (nested `_ENGINES_` 4, `_WINGS_` 8, deeper `_SUBWINGS_`, `_THRUSTERS_`);
+scientific (explorers) `_COCKPIT_` 2 frames (nested `_ACCFRONT_`, `_BACK_`, `_COCKPIT_`, `_WINGS_` ...); shuttle
+`_SHUTTLE_` 2 (double / single) -> `_HULL_` -> `_HULL1_` -> ... modular tubes; s-class (exotics) `_SCLASSSHIP_` royal
+(nested `_COCKPIT_`, `_ENGINE_`, `_WINGS_`, `_TOPWING_`, `_LANDINGGEAR_`) and squid; sailship (solar) `_BODY_` 6 /
+`_SAILS_` 3 / `_TIPS_` 5 / `_WINGS_` 6; sentinelship `_PIT_` 3 / `_SKIRT_` 2 / `_TOPFLAP_` 2 / `_WINGS_` 3 with many
+nested groups. Useful locators: `Gun<N>Ref` references (the wings' guns, with `ShipGun` / `EXT_SHOOT` under them),
+`RefEngine<N>` references (thrusters, each with `Trail`, `Stage1` / `Stage2` locators), `Contrail<N>`, the engines'
+`EngineLight`, `CockpitPos`, `SLOT_*` locators on the proc root.
+
+## Geometry (`.GEOMETRY.MBIN.PC` + `.GEOMETRY.DATA.MBIN.PC`; `.IOS` the same bytes)
+
+Per mesh id, the data file's `MeshDataStream` holds the **vertex stream then the index data** (`IndexDataOffset` =
+`VertexDataSize`; `Indices16Bit` says u16 or u32 but some models (the solar ships' proc geometry) say u32 and store
+u16, so the width that fits the vertex count wins); `MeshPositionDataStream` holds the position stream. The 7.x
+layouts:
+
+- position stream, stride 16: POSITION (semantic 0) half4 (w = 1) at 0, TEXCOORD (semantic 1) half4 (u, v, u2, v2) at 8;
+- vertex stream, stride 8: COLOUR (semantic 4) ubyte4 at 0, and at 4 a packed u32 (semantic 11, type GL_UNSIGNED_INT,
+  size 1) with the **normal as an octahedral pair of 10-bit unsigned fields in bits 0-9 and 10-19** (0.98-0.99 mean
+  agreement with the face normals of several meshes; every other reading tried, 2_10_10_10, 8-bit octahedral, quaternion
+  tangent frames, scored under 0.6); bits 20-31 are the tangent (not decoded).
+- skinned parts (the solar ships): stride 20, BLENDINDICES ubyte4 (semantic 5) at 4, BLENDWEIGHTS half4 (semantic 6)
+  at 8, the packed u32 at 16.
+
+GL type enums: 5120 byte, 5121 unsigned byte, 5122 short, 5123 unsigned short, 5125 unsigned int, 5126 float, 5131 half.
+Units are metres, +Y up, the nose along +Z (a fighter is about 9 m wide, 7.5 m long, 4.4 m tall).
+
+## Textures
+
+DDS, mipmapped, 2048² down to 256². PC: DXT1 (BC1, the base maps), ATI2 (BC5, normal maps: two channels, the blue
+rebuilt), DX10 BC7 (DXGI 98) and ATI1 (BC4) for single-channel masks; Pillow decodes all four. iOS: ASTC in DX10 headers
+(DXGI 134 = 4x4, 142 = 6x6, 150 = 8x8, 162 = 10x10), 256², which Pillow doesn't decode: `astc_decomp_faster` or
+`astcenc`. Material samplers: `gDiffuseMap` (`<name>.BASE.DDS`), `gMasksMap` (`.MASKS.DDS`: R ambient occlusion, G
+roughness, B metallic), `gNormalMap` (`.NORMAL.DDS`). Paint: materials named `*primary*`, `*secondary*`, `*tertiary*`
+(the shared `FIGHTERS/SHARED/PRIMARY.DDS` and the like) take the ship's palette; `gMaterialColourVec4` tints.
+
+## Tools that read these formats
+
+monkeyman192/HGPAKTool (the archive spec), monkeyman192/MBINCompiler (libMBIN, the template layouts; v7.10.0.1 for 7.10),
+NMSDK (Blender). Checked here: the PC and the iOS archives of NMS 7.10 decompress and decode with the same code, the
+iOS banks through pyooz 0.0.8 (`import ooz; ooz.decompress(chunk, 0x20000)`).

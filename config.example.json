@@ -1,0 +1,11 @@
+{
+ "_comment": "Copy this file to config.json and change what you need. Every key is a command-line option without its dashes; the command line wins over this file. 'python3 import.py --list-classes' lists the classes.",
+ "game": "C:/Program Files (x86)/Steam/steamapps/common/No Man's Sky",
+ "classes": ["all"],
+ "out": "nms_ships",
+ "max-texture": 2048,
+ "max-variants": 4,
+ "max-parts": 14,
+ "zip": false,
+ "fresh": false
+}
