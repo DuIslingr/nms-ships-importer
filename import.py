@@ -95,19 +95,23 @@ def main():
     if a.list_classes:
         for k, v in build.CLASSES.items():
             print(f"  {k:20} {v['name']}: {v['description']}" + ("" if "proc" in v else "  (a fixed design)"))
-        print("  all                  every class; procedural = the customizable classes only; fixed = the fixed designs only")
+        for k, v in build.CAPITALS.items():
+            print(f"  {k:20} {v['name']}: {v['description']}  (a capital ship in the traffic)")
+        print("  all                  everything; procedural = the customizable classes; fixed = the fixed designs; capitals = the capital ships")
         return
     if not a.game:
         ap.error(f"give the game folder (or \"game\" in {os.path.basename(config)})")
     banks_folder = hgpak.find_banks(a.game)
     if not banks_folder:
         fail(f"no PCBANKS or IOSBANKS folder with .pak archives under {a.game}")
-    classes = list(build.CLASSES) if a.classes in ("all", "") else [c.strip() for c in a.classes.split(",") if c.strip()]
+    classes = list(build.CLASSES) + list(build.CAPITALS) if a.classes in ("all", "") else [c.strip() for c in a.classes.split(",") if c.strip()]
     if classes == ["procedural"]:
         classes = [c for c, v in build.CLASSES.items() if "proc" in v]
     elif classes == ["fixed"]:
         classes = [c for c, v in build.CLASSES.items() if "scene" in v]
-    unknown = [c for c in classes if c not in build.CLASSES]
+    elif classes == ["capitals"]:
+        classes = list(build.CAPITALS)
+    unknown = [c for c in classes if c not in build.CLASSES and c not in build.CAPITALS]
     if unknown:
         fail(f"unknown classes: {', '.join(unknown)} (--list-classes lists them)")
     out = os.path.abspath(os.path.expanduser(a.out))

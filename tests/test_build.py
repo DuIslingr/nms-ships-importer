@@ -231,7 +231,7 @@ class BuildTests(unittest.TestCase):
             chan = doc["animations"][0]["channels"][0]
             self.assertEqual(chan["target"]["path"], "rotation")
             turbine = doc["nodes"][chan["target"]["node"]]
-            self.assertTrue(turbine["name"].endswith("TurbineLOD0"))
+            self.assertIn("TurbineLOD0", turbine["name"])
             np.testing.assert_allclose(turbine["translation"], [0.0, 1.0, -2.8], atol=1e-5)
             times = doc["accessors"][doc["animations"][0]["samplers"][0]["input"]]
             self.assertAlmostEqual(times["max"][0], 2.0, places=5)
@@ -243,7 +243,7 @@ class BuildTests(unittest.TestCase):
             self.assertEqual([a["name"] for a in doc["animations"]], ["flight", "takeoff"])   # the loop first (the remake plays it), the take-off kept after it
             self.assertEqual(doc["animations"][0]["channels"][0]["target"]["node"], doc["nodes"].index(flap))
             self.assertAlmostEqual(doc["accessors"][doc["animations"][0]["samplers"][0]["input"]]["max"][0], 2 / 30, places=5)
-            mesh_node = next(n for n in doc["nodes"] if n["name"].endswith("FlapLOD0"))
+            mesh_node = next(n for n in doc["nodes"] if "FlapLOD0" in n["name"])
             self.assertIn(doc["nodes"].index(mesh_node), flap["children"])
             # materials and maps
             mats = {m["material"]: m for m in kit["materials"]}
@@ -313,3 +313,58 @@ class FixedDesignTests(unittest.TestCase):
             self.assertEqual(ship["kit"], "test_fixed")
             self.assertEqual(ship["build"]["hull"], "test_fixed-hull")
             self.assertEqual(ship["dealer"]["chance"], 1)   # a unique: rare at the dealers
+
+
+@unittest.skipUnless(HAVE_ZSTD, "no zstd")
+class CapitalShipTests(unittest.TestCase):
+    def test_capital_ship_entry(self):
+        """A capital ship: one model, its turret origins as turret mounts with npcTurrets, its hangar root as a hangar
+        subsystem for a hostile one, its trail as an exhaust, shrunk to its longest length."""
+        with tempfile.TemporaryDirectory() as d:
+            pc = synthetic_game(d)
+            # a hull 40 m long with two turret origins, a hangar root and a trail, as another archive in the same folder
+            hull = box(0, 0, 0, 20.0)
+            g, data = fixtures.make_geometry({"HULLLOD0": hull})
+            base = "models/common/spacecraft/industrial/testfreighter"
+            files = {base + ".geometry.mbin.pc": g, base + ".geometry.data.mbin.pc": data,
+                     base + ".scene.mbin": fixtures.make_scene({"name": base.upper().replace("/", "\\"), "type": "MODEL", "attrs": {"GEOMETRY": base.upper().replace("/", "\\") + ".GEOMETRY.MBIN"}, "children": [
+                         {"name": "HullLOD0", "type": "MESH", "attrs": {"LODLEVEL": "0", "MATERIAL": "MODELS\\COMMON\\SPACECRAFT\\FIGHTERS\\PARTS\\COCKPITA\\PRIMARY.MATERIAL.MBIN"}},
+                         {"name": "TURRETORIGIN1", "type": "LOCATOR", "transform": ((0, 0, 0), (1, 1, 1), (10, 20, 5))},
+                         {"name": "TURRETORIGIN2", "type": "LOCATOR", "transform": ((0, 0, 180), (1, 1, 1), (-10, -20, 5))},
+                         {"name": "HANGARROOTA", "type": "LOCATOR", "transform": ((0, 90, 0), (1, 1, 1), (0, 0, 15))},
+                         {"name": "TRAIL1", "type": "LOCATOR", "transform": ((0, 0, 0), (2, 2, 2), (0, 0, -20))}]})}
+            fixtures.write(os.path.join(pc, "NMSARC.Capital.pak"), fixtures.make_hgpak(files))
+            out = os.path.join(d, "nms_ships")
+            build.CAPITALS["test_capital"] = dict(scene="industrial/testfreighter", name="Test Capital", kind="battleship", races=[8], hull=4,
+                                                  lod_budget=100000, max_length=20, hangar=["fighter"], description="A test capital ship.")
+            try:
+                kits, ships, report = build.build(hgpak.Banks(pc), out, ["test_capital"])
+            finally:
+                del build.CAPITALS["test_capital"]
+            self.assertEqual(report.warnings, [])
+            self.assertEqual(kits, [])
+            ship = ships[0]
+            self.assertEqual(ship["model"], "models/test_capital.glb")
+            self.assertTrue(os.path.exists(os.path.join(out, ship["model"])))
+            self.assertEqual(ship["traffic"], {"capital": "battleship", "weight": 1, "races": [8]})
+            self.assertEqual(ship["race"], 8)
+            self.assertEqual(ship["hullFactor"], 4)
+            self.assertEqual(ship["engineStyle"], "es2")
+            self.assertAlmostEqual(ship["modelLength"], 20 * 20, places=3)   # 40 m shrunk to 20 m, in game units
+            turrets = [m for m in ship["mounts"] if m["slotType"] == 2]
+            self.assertEqual(len(turrets), 2)
+            self.assertEqual(ship["npcTurrets"], [48, 49])
+            self.assertEqual(ship["slots"]["turret"], 2)
+            up = next(m for m in turrets if m["position_engine"][1] < 0)["turretUp"]
+            self.assertAlmostEqual(up[1], -1.0, places=3)   # the turned-over origin hangs under the hull
+            self.assertEqual([m["position_engine"] for m in turrets if m["position_engine"][1] > 0], [[100.0, 200.0, 50.0]])   # 10 m x 0.5 x 20
+            exhausts = [m for m in ship["mounts"] if m["slotType"] == 3]
+            self.assertEqual(exhausts, [{"slotType": 3, "position_engine": [0.0, 0.0, -200.0], "socketScale": 0.5}])   # the trail's scale 2 x 0.5 / 2
+            hangar = ship["subsystems"][0]
+            self.assertEqual(hangar["kind"], "hangar")
+            self.assertEqual(hangar["ships"], ["nms_ships:fighter"])
+            self.assertEqual(hangar["position_engine"], [0.0, 0.0, 150.0])
+            self.assertAlmostEqual(hangar["turretUp"][0], -1.0, places=3)   # turned 90 about Y: it launches along -X
+            self.assertTrue(all("mesh" in m and m["mesh"].startswith("__mat_") for m in ship["materials"]))
+            doc, _ = glb.read(os.path.join(out, ship["model"]))
+            self.assertTrue(all("__mat_" in n["name"] for n in doc["nodes"] if "mesh" in n))

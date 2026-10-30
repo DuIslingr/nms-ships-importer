@@ -74,10 +74,36 @@ CLASSES = {
     "bio_fighter": dict(scene="s-class/bioparts/biofighter", name="Bio Fighter", scale=2.5, armor=300, cargo=40, handling=160, price=4500000,
                         equipment=11, description="No Man's Sky's grown fighter: a living hull of fixed shape."),
 }
+# The capital ships: traffic freighters and battleships (the remake's capital ships), one model each from the game's
+# freighter scenes (their descriptors' likeliest choices). The five standard frigates are not here: the game assembles
+# their hulls in code from part tables, their scene files hold only the boardable details. `kind` is the remake's capital kind, `lod_budget`
+# the triangles the model may hold (coarser LODs are taken per mesh family above it), `max_length` metres (the remake's
+# flight level ends at 15 km), `hangar` the mod's ships a hostile one launches.
+CAPITALS = {
+    "freighter": dict(scene="industrial/freighter_proc", name="Freighter", kind="freighter", races=[0, 1, 2, 3], hull=3,
+                      lod_budget=300000, max_length=2000, description="A No Man's Sky freighter, cruising the orbit."),
+    "small_freighter": dict(scene="industrial/freightersmall_proc", name="Small Freighter", kind="freighter", races=[0, 1, 2, 3], hull=1,
+                            lod_budget=200000, max_length=1000, description="A small No Man's Sky freighter."),
+    "tiny_freighter": dict(scene="industrial/freightertiny_proc", name="Light Freighter", kind="freighter", races=[0, 1, 2, 3], hull=1,
+                           lod_budget=200000, max_length=1000, description="A light No Man's Sky freighter."),
+    "capital_freighter": dict(scene="industrial/capitalfreighter_proc", name="Capital Freighter", kind="battleship", races=[0, 1, 2, 3], hull=5,
+                              lod_budget=400000, max_length=3500, description="A No Man's Sky capital freighter: a flying dock the size of a city."),
+    "pirate_dreadnought": dict(scene="industrial/piratefreighter", name="Pirate Dreadnought", kind="battleship", races=[8], hull=8,
+                               lod_budget=500000, max_length=4500, hangar=["fighter"], description="A No Man's Sky pirate dreadnought: cannons along every trench, raiders in its bays."),
+    "sentinel_capital": dict(scene="police/policefreighter", name="Sentinel Capital Ship", kind="battleship", races=[9], hull=5,
+                             lod_budget=400000, max_length=2500, hangar=["sentinel"], description="A No Man's Sky sentinel capital ship, bristling with turrets."),
+    "living_frigate": dict(scene="frigates/livingfrigate_proc_lod0", name="Living Frigate", kind="freighter", races=[0, 1, 2, 3], hull=2,
+                           lod_budget=250000, max_length=800, description="A No Man's Sky living frigate: a grown hull in the traffic."),
+}
+TURRET_ITEMS = [48, 49, 47]          # the game's blaster-bolt turrets, cycled over a capital ship's turret mounts
+MAX_TURRETS = 8                      # the remake's limit for a capital ship's hardpoints in multiplayer copies
+TURRET_NODES = re.compile(r"(turretorigin|^turret|refturret|antishipturret|smallturretref|refheavycannon|turretpolice|cannon)", re.I)
+HANGAR_NODES = re.compile(r"hangarroot", re.I)
+
 SKIP_MATERIAL_CLASSES = {2, 12, 22, 24}   # Additive (engine jets: the remake draws its own flames), Decal, GunAdditive, GunGlow
 EMISSIVE_CLASSES = {18, 19}               # Glow, GlowTranslucent
 TRANSLUCENT_CLASSES = {62, 63, 15}        # Translucent, TranslucentPostScene, DoubleSided
-SKIP_NODES = re.compile(r"(landinggear|landing_gear|frontpad|leftpad|rightpad|backpad|_gear\b|shadowmesh)", re.I)
+SKIP_NODES = re.compile(r"(landinggear|landing_gear|frontpad|leftpad|rightpad|backpad|_gear\b|shadowmesh|shielddata|fxsphere|vfxref|engineglowpoly|gravitycube|gravityvolume)", re.I)   # gear and pads; the capital ships' shield spheres, engine effect planes and gravity volumes
 WEAPON_SCENES = re.compile(r"/shared/weapons/", re.I)   # the ship gun (one model for every class), a fixed part of the hull
 
 
@@ -260,6 +286,14 @@ class Materials:
                 out.append({k: v for k, v in e.items() if not k.startswith("_")})
         return out
 
+    def ship_entries(self, names):
+        """The entries for a plain ship's `materials` (matched by the renderers' names, which carry `__<material>`)."""
+        out = []
+        for e in self.kit_entries():
+            if e["material"] in names:
+                out.append({"mesh": "__" + e["material"], **{k: v for k, v in e.items() if k != "material"}})
+        return out
+
     def flame_noise(self):
         """The flame flicker noise from the game's jet texture: its streaks across the jet, tiled."""
         if FLAME_NOISE in self.textures.values() or "_noise" in self.textures:
@@ -353,6 +387,8 @@ class Part:
         self.animated = False
         self.stats = {}
         self.engine_colour = None
+        self.lod_floor = 0
+        self.material_names = []
 
 
 def engine_colour(asm):
@@ -413,8 +449,8 @@ def locator_mounts(asm, scale, overrides=None):
     if not any(m["slotType"] == 3 for m in mounts):
         for p in asm.references:
             n = p.node.name.lower()
-            if "engine" in n and "ref" in n:
-                add(p, 3)
+            if "engine" in n and ("ref" in n or "reactor" in n):   # thruster references; the frigates' engine effect references
+                add(p, 3, {"socketScale": 1.0})
     for p in asm.locators:
         if p.node.name.lower().startswith("contrail"):
             add(p, 5, {"socketScale": 0.5})   # wingtip contrails: thin
@@ -715,7 +751,7 @@ class KitBuilder:
 
         drawn = [p for p in asm.meshes if not SKIP_NODES.search(p.path)]
         colour = engine_colour(asm)
-        for i, placed in enumerate(scene.finest_meshes(drawn)):
+        for i, placed in enumerate(scene.finest_meshes(drawn, part.lod_floor)):
             g = placed.scene.geometry
             name, cls = self.materials.name_for(placed, colour)
             role = name.rsplit("_", 1)[1]
@@ -743,7 +779,7 @@ class KitBuilder:
                 M = overrides.get(placed.node, placed.node.local)
                 t, r, sc = glb.trs(M)
                 idx = m.indices[:, ::-1] if np.linalg.det(placed.world(overrides)[:3, :3]) < 0 else m.indices
-                glb_nodes[placed.node] = w.add_mesh(f"{part.id}_{i:03d}_{placed.node.name}", m.positions, m.normals, uvs, idx, mat,
+                glb_nodes[placed.node] = w.add_mesh(f"{part.id}_{i:03d}_{placed.node.name}__{name}", m.positions, m.normals, uvs, idx, mat,
                                                     uvs2=uvs2, parent=parent, translation=t, rotation=r, scale=sc)
                 world = placed.world(overrides)
                 pos = geometry.apply(world, m.positions)
@@ -752,7 +788,7 @@ class KitBuilder:
                 pos = geometry.apply(world, m.positions)
                 nrm = geometry.apply_normals(world, m.normals)
                 idx = m.indices[:, ::-1] if np.linalg.det(world[:3, :3]) < 0 else m.indices
-                w.add_mesh(f"{part.id}_{i:03d}_{placed.node.name}", pos, nrm, uvs, idx, mat, uvs2=uvs2)
+                w.add_mesh(f"{part.id}_{i:03d}_{placed.node.name}__{name}", pos, nrm, uvs, idx, mat, uvs2=uvs2)
             lo, hi = np.minimum(lo, pos.min(0)), np.maximum(hi, pos.max(0))
             tris += m.triangle_count
         part.mounts = locator_mounts(asm, scale, overrides)
@@ -765,9 +801,90 @@ class KitBuilder:
         part.animated = bool(w.animations)
         for ref in asm.missing:
             self.report.warn(f"{part.id}: referenced scene missing: {ref}")
-        os.makedirs(os.path.join(self.out, "parts"), exist_ok=True)
+        part.material_names = sorted(w.material_index)
+        os.makedirs(os.path.join(self.out, os.path.dirname(part.model)), exist_ok=True)
         w.save(os.path.join(self.out, part.model))
         return True
+
+    # -- capital ships --
+
+    def build_capital(self, cid, spec):
+        """A capital ship: one model from its scene (the descriptor's likeliest choices), coarser LODs until it fits its
+        triangle budget, shrunk to its longest length; its turrets, hangar and exhausts as mounts. Returns the ship entry."""
+        scene_path = SPACECRAFT + spec["scene"] + ".scene.mbin"
+        if not self.banks.exists(scene_path):
+            self.report.warn(f"{cid}: {scene_path} is not in the archives; skipped")
+            return None
+        desc_path = scene_path[: -len(".scene.mbin")] + ".descriptor.mbin"
+        d, picks = None, set()
+        if self.banks.exists(desc_path):
+            d = descriptors.Descriptor(self.banks.read(desc_path))
+            for g in d.groups:
+                descriptors.default_picks(g, picks)
+        # the size first (a cheap pass over the finest meshes' bounds), then the shrink
+        asm = scene.Assembler(self.banks, descriptors.chooser(d, picks) if d else None, pick=self.pick)
+        asm.assemble(scene_path)
+        lo, hi = np.array([1e9] * 3), np.array([-1e9] * 3)
+        for placed in scene.finest_meshes([p for p in asm.meshes if not SKIP_NODES.search(p.path)]):
+            m = placed.scene.geometry.mesh(placed.node.name)
+            if len(m.indices):
+                pos = geometry.apply(placed.matrix, m.positions)
+                lo, hi = np.minimum(lo, pos.min(0)), np.maximum(hi, pos.max(0))
+        length = float(hi[2] - lo[2]) if hi[2] > lo[2] else 1.0
+        shrink = min(1.0, spec["max_length"] / length)
+        part = Part(cid, "hull", spec["name"], None, picks)
+        part.model = f"models/{cid}.glb"
+        for floor in (0, 1, 2, 3):
+            part.lod_floor = floor
+            if not self.build_part(scene_path, d, part, shrink):
+                self.report.warn(f"{cid}: no meshes; skipped")
+                return None
+            if part.triangles <= spec["lod_budget"]:
+                break
+        self.report.note(f"{cid}: {part.triangles} triangles at LOD floor {part.lod_floor}, {length:.0f} m x {shrink:.2f}")
+        k = shrink * UNITS_PER_METRE
+        mounts = [m for m in part.mounts if m["slotType"] in (3, 5)]
+        if not any(m["slotType"] == 3 for m in mounts):   # no engine nodes at all: one exhaust at the stern's centre
+            mounts.append({"slotType": 3, "position_engine": [0.0, round(float((lo[1] + hi[1]) / 2) * k, 1), round(float(lo[2]) * k, 1)], "socketScale": 2.0})
+        turrets, seen = [], set()
+        for placed in asm.references + asm.locators:
+            n = placed.node.name
+            if not TURRET_NODES.search(n) or re.search(r"(joint|rotate|projecttile|missile)", n, re.I):
+                continue
+            W = placed.matrix
+            pos = tuple(round(float(x) * k, 1) for x in W[:3, 3])
+            if any(abs(pos[0] - q[0]) + abs(pos[1] - q[1]) + abs(pos[2] - q[2]) < 20 for q in seen):
+                continue
+            seen.add(pos)
+            up = W[:3, 1] / max(np.linalg.norm(W[:3, 1]), 1e-9)
+            turrets.append({"slotType": 2, "position_engine": list(pos), "turretUp": [round(float(x), 3) for x in up]})
+        turrets.sort(key=lambda m: -abs(m["position_engine"][0]) - abs(m["position_engine"][1]))   # the outermost first: the ones that see most sky
+        turrets = turrets[:MAX_TURRETS]
+        subsystems = []
+        if spec.get("hangar"):
+            for placed in asm.locators:
+                if HANGAR_NODES.search(placed.node.name):
+                    W = placed.matrix
+                    fwd = -W[:3, 2] / max(np.linalg.norm(W[:3, 2]), 1e-9)
+                    subsystems.append({"kind": "hangar", "model": "none", "position_engine": [round(float(x) * k, 1) for x in W[:3, 3]],
+                                       "turretUp": [round(float(x), 3) for x in fwd], "ships": [f"{MOD_ID}:{x}" for x in spec["hangar"]],
+                                       "every": 30, "perWave": 2, "maxAlive": 4, "total": 8})
+                    break
+        races = spec["races"]
+        entry = {"id": cid, "name": spec["name"], "description": spec["description"], "race": races[0],
+                 "armor": 2000 * spec["hull"], "cargo": 0, "handling": 30, "price": 0,
+                 "slots": {"primary": 0, "secondary": 0, "turret": len(turrets), "equipment": 0},
+                 "model": part.model, "modelLength": round(length * shrink * UNITS_PER_METRE, 1), "modelYaw": 0,
+                 "mounts": turrets + mounts,
+                 "npcTurrets": [TURRET_ITEMS[i % len(TURRET_ITEMS)] for i in range(len(turrets))],
+                 "traffic": {"capital": spec["kind"], "weight": 1, "races": races},
+                 "hullFactor": spec["hull"], "engineStyle": "es2", "explosionScale": 3 if spec["kind"] == "battleship" else 2,
+                 "materials": self.materials.ship_entries(part.material_names)}
+        if part.engine_colour:
+            entry["engineGlowColor"] = part.engine_colour
+        if subsystems:
+            entry["subsystems"] = subsystems
+        return entry
 
     def write_animations(self, w, anims, glb_nodes, chains, ensure, overrides):
         """The flight loop (the entities' idle loops and the spinning parts) as the GLB's first animation, the
@@ -918,6 +1035,8 @@ def build(banks, out, classes=None, report=None, limit_parts=None, max_texture=M
     os.makedirs(out, exist_ok=True)
     kb = KitBuilder(banks, out, report, MAX_VARIANTS, MAX_PARTS_PER_SLOT)
     kits, ships = [], []
+    capitals = [c for c in classes if c in CAPITALS]
+    classes = [c for c in classes if c in CLASSES]
     for class_id in classes:
         spec = CLASSES[class_id]
         log(f"{spec['name']} ({SPACECRAFT}{spec.get('proc') or spec.get('scene')})")
@@ -928,6 +1047,14 @@ def build(banks, out, classes=None, report=None, limit_parts=None, max_texture=M
             ships.append(ship_entry(kit, name, spec, parts))
             tris = sum(p.triangles for p in parts)
             log(f"  {kit['id']}: {len(parts)} parts, {tris} triangles ({time.time() - t0:.0f} s)")
+    for cid in capitals:
+        spec = CAPITALS[cid]
+        log(f"{spec['name']} ({SPACECRAFT}{spec['scene']})")
+        entry = kb.build_capital(cid, spec)
+        if entry:
+            ships.append(entry)
+            log(f"  {cid}: {entry['modelLength'] / UNITS_PER_METRE:.0f} m, {len([m for m in entry['mounts'] if m['slotType'] == 2])} turrets, "
+                f"{len([m for m in entry['mounts'] if m['slotType'] == 3])} exhausts ({time.time() - t0:.0f} s)")
     log("Textures...")
     done, failed = kb.materials.convert(out, max_texture)
     log(f"  {done} written" + (f", {failed} failed" if failed else ""))
@@ -937,10 +1064,11 @@ def build(banks, out, classes=None, report=None, limit_parts=None, max_texture=M
     write_json(os.path.join(out, "ships.json"), ships)
     write_json(os.path.join(out, "mod.json"), {
         "id": MOD_ID, "name": "No Man's Sky ships", "version": VERSION, "author": "built by nms_ships_importer",
-        "description": "No Man's Sky's starships as customizable hulls: " + ", ".join(sorted({s["name"] for s in ships}))
+        "description": "No Man's Sky's starships as customizable hulls: " + ", ".join(sorted({s["name"] for s in ships if "kit" in s}))
+                       + (("; its freighters, frigates and dreadnoughts in the orbits' traffic: " + ", ".join(sorted({s["name"] for s in ships if "kit" not in s}))) if any("kit" not in s for s in ships) else "")
                        + ". Built on this device from your own copy of No Man's Sky. Customize them in the hangar.",
         "credits": "Models and textures: No Man's Sky (c) Hello Games, from the player's own copy of the game. For personal use: don't share the built mod.",
-        "multiplayerIgnore": ["parts/", "maps/"]})
+        "multiplayerIgnore": ["parts/", "maps/", "models/"]})
     if report.missing_textures:
         report.warn(f"{len(report.missing_textures)} textures named by materials are not in the archives (e.g. {report.missing_textures[0]})")
     log(f"Done in {time.time() - t0:.0f} s: {len(kits)} kits, {sum(len(k['parts']) for k in kits)} parts -> {out}")

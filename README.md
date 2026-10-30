@@ -48,7 +48,7 @@ elsewhere; `--zip` also zips it). A build of every class takes a minute or two.
 
 | Option | |
 |---|---|
-| `--classes fighter,hauler` | Only these classes (`--list-classes` shows them: fighter, hauler, explorer, shuttle, exotic, solar, sentinel, living, and the fixed designs; `procedural` / `fixed` for those groups). Default: all. |
+| `--classes fighter,hauler` | Only these classes (`--list-classes` shows them: fighter, hauler, explorer, shuttle, exotic, solar, sentinel, living, the fixed designs and the capital ships; `procedural` / `fixed` / `capitals` for those groups). Default: all. |
 | `--max-parts N` | Parts per slot at most (default 14): the fighters have ten wings, the shuttles dozens of hull pieces. |
 | `--max-variants N` | Variants of one part over its nested accessories (default 4): `Wings F`, `Wings F (Acc A3)` ... |
 | `--max-texture N` | The textures' longest side (default 2048; 1024 for phones). |
@@ -95,6 +95,17 @@ it, as one piece; the other choices are further parts of the slot (up to `--max-
 so every part of a kit fits every build of it. No Man's Sky's one ship gun model stays on the hull at the game's gun
 points, as the base game's ships carry theirs; the weapon mounts sit at the same points, so your shots leave its barrels,
 missiles too (No Man's Sky has no second weapon class: its rockets fire from the same two gun points).
+
+**Capital ships.** The game's big hulls fly in the remake's traffic as capital ships (`ships.json` entries with
+`traffic.capital`): the freighter, the small and light freighters and the living frigate as freighters cruising the
+orbits; the capital freighter as a parked battleship; the pirate dreadnought (hostile, with its raiders launching from
+its hangar) and the sentinel capital ship (hostile, Void) as battleships. Each is one model from its scene (the
+descriptor's likeliest choices, coarser detail levels where a model has them and runs over its triangle budget), shrunk
+to at most a few kilometres, with up to eight of the game's turret points as turret mounts armed with the game's blaster
+turrets, its engine trails or engine references as exhausts drawn in EVERSPACE 2's style, and its hangar root as a
+launch point. The five standard frigates (combat, science, diplomatic, industrial, support) are not brought over yet:
+the game assembles their hulls in code from part tables, their scene files hold only the boardable details.
+`--classes capitals` builds only these.
 
 **Part bonuses.** Each part changes the ship a little by its size against the other parts of its slot, the flavour
 No Man's Sky had before its 4.0 update (big wings carried more): wider wings and sails give cargo and cost handling
