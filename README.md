@@ -97,15 +97,20 @@ points, as the base game's ships carry theirs; the weapon mounts sit at the same
 missiles too (No Man's Sky has no second weapon class: its rockets fire from the same two gun points).
 
 **Capital ships.** The game's big hulls fly in the remake's traffic as capital ships (`ships.json` entries with
-`traffic.capital`): the freighter, the small and light freighters and the living frigate as freighters cruising the
-orbits; the capital freighter as a parked battleship; the pirate dreadnought (hostile, with its raiders launching from
-its hangar) and the sentinel capital ship (hostile, Void) as battleships. Each is one model from its scene (the
-descriptor's likeliest choices, coarser detail levels where a model has them and runs over its triangle budget), shrunk
-to at most a few kilometres, with up to eight of the game's turret points as turret mounts armed with the game's blaster
-turrets, its engine trails or engine references as exhausts drawn in EVERSPACE 2's style, and its hangar root as a
-launch point. The five standard frigates (combat, science, diplomatic, industrial, support) are not brought over yet:
-the game assembles their hulls in code from part tables, their scene files hold only the boardable details.
-`--classes capitals` builds only these.
+`traffic.capital`). As freighters cruising the orbits: the freighter, the small and light freighters, the early
+freighter hull and the freight ship, the small transport, the five frigates (combat, science, diplomatic, industrial,
+support), the living frigate, the Normandy SR1 and the ghost frigate. As battleships: the capital freighter, parked in
+the capital-ship special; the pirate dreadnought and the pirate cruiser (hostile, raiders launching from the
+dreadnought's hangar); the sentinel capital ship, the brood frigate and the brood hive (hostile, Void). Each is one
+model from its scene (the descriptor's likeliest choices; a frigate's hull is its LOD0 scene with the engine trails of
+its base scene), coarser detail levels where a model has them and runs over its triangle budget, shrunk to at most a
+few kilometres, with up to eight of the game's turret points as turret mounts armed with the game's blaster turrets,
+its engine trails or engine references as exhausts drawn in EVERSPACE 2's style, and its hangar root as a launch point.
+The game's big ships face the other way from its fighters: a model whose exhausts sit forward of its centre is turned
+half around (`modelYaw` 180, its mounts with it). The sentinel police ship, the sentinel drone ship and the brood
+fighter and drone come over as hostile fighters of the traffic, never sold. Left out: the shield spheres, effect planes,
+gravity volumes and corvette docking pads the scenes carry, and the modular corvettes. `--classes capitals` builds only
+the capital ships.
 
 **Part bonuses.** Each part changes the ship a little by its size against the other parts of its slot, the flavour
 No Man's Sky had before its 4.0 update (big wings carried more): wider wings and sails give cargo and cost handling

@@ -73,6 +73,15 @@ CLASSES = {
                             equipment=12, description="No Man's Sky's Boundary Herald: a disc hull fanning glowing feather wings."),
     "bio_fighter": dict(scene="s-class/bioparts/biofighter", name="Bio Fighter", scale=2.5, armor=300, cargo=40, handling=160, price=4500000,
                         equipment=11, description="No Man's Sky's grown fighter: a living hull of fixed shape."),
+    # the small hostile craft: in the traffic only, never sold
+    "police_ship": dict(scene="police/policeship", name="Sentinel Police Ship", scale=2.5, armor=200, cargo=10, handling=170, price=0, race=9,
+                        equipment=6, traffic_only=True, description="No Man's Sky's sentinel police ship."),
+    "drone_ship": dict(scene="drone/droneship", name="Sentinel Drone Ship", scale=2.0, armor=320, cargo=10, handling=120, price=0, race=9,
+                       equipment=6, traffic_only=True, description="No Man's Sky's sentinel drone carrier."),
+    "swarm_fighter": dict(scene="swarm/swarm", name="Brood Fighter", scale=1.5, armor=220, cargo=10, handling=170, price=0, race=9,
+                          equipment=6, traffic_only=True, description="A No Man's Sky brood fighter of the swarm."),
+    "swarm_drone": dict(scene="swarm/swarmdrone", name="Brood Drone", scale=4.0, armor=80, cargo=5, handling=190, price=0, race=9,
+                        equipment=4, traffic_only=True, description="A No Man's Sky brood drone."),
 }
 # The capital ships: traffic freighters and battleships (the remake's capital ships), one model each from the game's
 # freighter scenes (their descriptors' likeliest choices). The five standard frigates are not here: the game assembles
@@ -94,6 +103,33 @@ CAPITALS = {
                              lod_budget=400000, max_length=2500, hangar=["sentinel"], description="A No Man's Sky sentinel capital ship, bristling with turrets."),
     "living_frigate": dict(scene="frigates/livingfrigate_proc_lod0", name="Living Frigate", kind="freighter", races=[0, 1, 2, 3], hull=2,
                            lod_budget=250000, max_length=800, description="A No Man's Sky living frigate: a grown hull in the traffic."),
+    # the frigates and the Normandy: the hull is the LOD0 scene, the base scene holds the engine trails and the LOD switch
+    "combat_frigate": dict(scene="frigates/combatfrigatelod0", also=["frigates/combatfrigate"], name="Combat Frigate", kind="freighter", races=[0, 1, 2, 3],
+                           hull=2, lod_budget=900000, max_length=600, description="A No Man's Sky combat frigate."),
+    "science_frigate": dict(scene="frigates/sciencefrigatelod0", also=["frigates/sciencefrigate"], name="Science Frigate", kind="freighter", races=[0, 1, 2, 3],
+                            hull=2, lod_budget=900000, max_length=600, description="A No Man's Sky exploration frigate."),
+    "diplomatic_frigate": dict(scene="frigates/diplomaticfrigatelod0", also=["frigates/diplomaticfrigate"], name="Diplomatic Frigate", kind="freighter", races=[0, 1, 2, 3],
+                               hull=2, lod_budget=900000, max_length=600, description="A No Man's Sky trade frigate."),
+    "industrial_frigate": dict(scene="frigates/industrialfrigatelod0", also=["frigates/industrialfrigate"], name="Industrial Frigate", kind="freighter", races=[0, 1, 2, 3],
+                               hull=2, lod_budget=1200000, max_length=600, description="A No Man's Sky industrial frigate."),
+    "support_frigate": dict(scene="frigates/supportfrigatelod0", also=["frigates/supportfrigate"], name="Support Frigate", kind="freighter", races=[0, 1, 2, 3],
+                            hull=2, lod_budget=900000, max_length=600, description="A No Man's Sky support frigate."),
+    "normandy": dict(scene="frigates/normandyfrigatelod0", also=["frigates/normandyfrigate"], name="Normandy SR1", kind="freighter", races=[0],
+                     hull=2, lod_budget=250000, max_length=600, description="The Normandy SR1, No Man's Sky's frigate from Mass Effect."),
+    "ghost_frigate": dict(scene="frigates/ghostshipfrigatelod0", also=["frigates/ghostshipfrigate"], name="Ghost Frigate", kind="freighter", races=[9],
+                          hull=2, lod_budget=300000, max_length=600, description="No Man's Sky's ghost ship: a derelict frigate drifting the lanes."),
+    "pirate_cruiser": dict(scene="industrial/piratecruiserlod0", also=["industrial/piratecruiser"], name="Pirate Cruiser", kind="battleship", races=[8],
+                           hull=3, lod_budget=500000, max_length=600, hangar=["fighter"], description="A No Man's Sky pirate cruiser."),
+    "old_freighter": dict(scene="industrial/freighter_a", name="Old Freighter", kind="freighter", races=[0, 1, 2, 3],
+                          hull=2, lod_budget=250000, max_length=800, description="No Man's Sky's early freighter hull."),
+    "freight_ship": dict(scene="industrial/freightship01", name="Freight Ship", kind="freighter", races=[0, 1, 2, 3],
+                         hull=2, lod_budget=250000, max_length=600, description="A No Man's Sky freight ship."),
+    "small_transport": dict(scene="industrial/smalltransport2", name="Small Transport", kind="freighter", races=[0, 1, 2, 3],
+                            hull=1, lod_budget=100000, max_length=400, description="A small No Man's Sky transport."),
+    "swarm_frigate": dict(scene="swarm/swarmfrigate", name="Brood Frigate", kind="battleship", races=[9], hull=4,
+                          lod_budget=500000, max_length=2500, hangar=["swarm_fighter"], description="A No Man's Sky brood frigate of the swarm, hostile."),
+    "swarm_hive": dict(scene="swarm/swarmhive", name="Brood Hive", kind="battleship", races=[9], hull=8,
+                       lod_budget=600000, max_length=3000, hangar=["swarm_fighter"], description="A No Man's Sky brood hive: the swarm's mothership."),
 }
 TURRET_ITEMS = [48, 49, 47]          # the game's blaster-bolt turrets, cycled over a capital ship's turret mounts
 MAX_TURRETS = 8                      # the remake's limit for a capital ship's hardpoints in multiplayer copies
@@ -103,7 +139,7 @@ HANGAR_NODES = re.compile(r"hangarroot", re.I)
 SKIP_MATERIAL_CLASSES = {2, 12, 22, 24}   # Additive (engine jets: the remake draws its own flames), Decal, GunAdditive, GunGlow
 EMISSIVE_CLASSES = {18, 19}               # Glow, GlowTranslucent
 TRANSLUCENT_CLASSES = {62, 63, 15}        # Translucent, TranslucentPostScene, DoubleSided
-SKIP_NODES = re.compile(r"(landinggear|landing_gear|frontpad|leftpad|rightpad|backpad|_gear\b|shadowmesh|shielddata|fxsphere|vfxref|engineglowpoly|gravitycube|gravityvolume)", re.I)   # gear and pads; the capital ships' shield spheres, engine effect planes and gravity volumes
+SKIP_NODES = re.compile(r"(landinggear|landing_gear|frontpad|leftpad|rightpad|backpad|_gear\b|shadowmesh|shielddata|fxsphere|vfxref|engineglowpoly|gravitycube|gravityvolume|gravcapsule|hoverpad|biggsplatform|landingzone)", re.I)   # and the corvette docking pads the frigates carry   # gear and pads; the capital ships' shield spheres, engine effect planes and gravity volumes
 WEAPON_SCENES = re.compile(r"/shared/weapons/", re.I)   # the ship gun (one model for every class), a fixed part of the hull
 
 
@@ -389,6 +425,7 @@ class Part:
         self.engine_colour = None
         self.lod_floor = 0
         self.material_names = []
+        self.extra_scenes = []   # more scenes assembled into the same model (a frigate's base scene with its trails)
 
 
 def engine_colour(asm):
@@ -618,11 +655,14 @@ class KitBuilder:
                         self.report.note(f"{p.id}: no meshes (left out)")
                 except Exception as e:
                     self.report.warn(f"{p.id}: {e}")
+            backward = "scene" in spec and faces_backward(built)
             kit = {"id": kit_id, "name": f"No Man's Sky {name} hulls", "slots": [s for s in slots if any(p.slot == s for p in built)],
-                   "scale": spec["scale"], "yaw": 0, "parts": []}
+                   "scale": spec["scale"], "yaw": 180 if backward else 0, "parts": []}
             if PART_STATS:
                 part_stats(built)
             for p in built:
+                if backward:
+                    p.mounts = turn_mounts(p.mounts)
                 entry = {"id": p.id, "slot": p.slot, "name": p.name, "model": p.model}
                 if p.mounts:
                     entry["mounts"] = p.mounts
@@ -720,6 +760,8 @@ class KitBuilder:
         asm = scene.Assembler(self.banks, descriptors.chooser(d, part.picks) if d else None, pick=self.pick)
         if part.option is None:   # the base: everything outside the options (or a fixed design's whole scene)
             asm.assemble(scene_path)
+            for extra in part.extra_scenes:
+                asm.assemble(extra)
         else:
             asm.assemble_node(scene_path, part.option.name, within=part.within)
         anims = self.animations_for(asm)
@@ -792,6 +834,7 @@ class KitBuilder:
             lo, hi = np.minimum(lo, pos.min(0)), np.maximum(hi, pos.max(0))
             tris += m.triangle_count
         part.mounts = locator_mounts(asm, scale, overrides)
+        part.scale = scale
         part.engine_colour = colour
         if tris == 0 and not (part.option is None and part.mounts):
             return False
@@ -822,8 +865,11 @@ class KitBuilder:
             for g in d.groups:
                 descriptors.default_picks(g, picks)
         # the size first (a cheap pass over the finest meshes' bounds), then the shrink
+        extra = [SPACECRAFT + x + ".scene.mbin" for x in spec.get("also", []) if self.banks.exists(SPACECRAFT + x + ".scene.mbin")]
         asm = scene.Assembler(self.banks, descriptors.chooser(d, picks) if d else None, pick=self.pick)
         asm.assemble(scene_path)
+        for x in extra:
+            asm.assemble(x)
         lo, hi = np.array([1e9] * 3), np.array([-1e9] * 3)
         for placed in scene.finest_meshes([p for p in asm.meshes if not SKIP_NODES.search(p.path)]):
             m = placed.scene.geometry.mesh(placed.node.name)
@@ -834,6 +880,7 @@ class KitBuilder:
         shrink = min(1.0, spec["max_length"] / length)
         part = Part(cid, "hull", spec["name"], None, picks)
         part.model = f"models/{cid}.glb"
+        part.extra_scenes = extra
         for floor in (0, 1, 2, 3):
             part.lod_floor = floor
             if not self.build_part(scene_path, d, part, shrink):
@@ -870,11 +917,14 @@ class KitBuilder:
                                        "turretUp": [round(float(x), 3) for x in fwd], "ships": [f"{MOD_ID}:{x}" for x in spec["hangar"]],
                                        "every": 30, "perWave": 2, "maxAlive": 4, "total": 8})
                     break
+        backward = faces_backward([part])
+        if backward:
+            turrets, mounts, subsystems = turn_mounts(turrets), turn_mounts(mounts), turn_mounts(subsystems)
         races = spec["races"]
         entry = {"id": cid, "name": spec["name"], "description": spec["description"], "race": races[0],
                  "armor": 2000 * spec["hull"], "cargo": 0, "handling": 30, "price": 0,
                  "slots": {"primary": 0, "secondary": 0, "turret": len(turrets), "equipment": 0},
-                 "model": part.model, "modelLength": round(length * shrink * UNITS_PER_METRE, 1), "modelYaw": 0,
+                 "model": part.model, "modelLength": round(length * shrink * UNITS_PER_METRE, 1), "modelYaw": 180 if backward else 0,
                  "mounts": turrets + mounts,
                  "npcTurrets": [TURRET_ITEMS[i % len(TURRET_ITEMS)] for i in range(len(turrets))],
                  "traffic": {"capital": spec["kind"], "weight": 1, "races": races},
@@ -997,6 +1047,31 @@ def colour_slots():
     return pal, slots, presets
 
 
+def faces_backward(parts):
+    """Whether the model's nose points -Z: its exhausts sit forward of its hull's centre."""
+    ex = [m["position_engine"][2] for p in parts for m in p.mounts if m["slotType"] == 3]
+    bounds = [p.bounds for p in parts if p.bounds]
+    if not ex or not bounds:
+        return False
+    lo = min(b[0][2] for b in bounds)
+    hi = max(b[1][2] for b in bounds)
+    return sum(ex) / len(ex) > (lo + hi) / 2 * UNITS_PER_METRE * (parts[0].scale if hasattr(parts[0], "scale") else 1)
+
+
+def turn_mounts(mounts):
+    """The mounts of a model turned half around (x and z negated, the facings too)."""
+    out = []
+    for m in mounts:
+        m = dict(m)
+        x, y, z = m["position_engine"]
+        m["position_engine"] = [-x, y, -z]
+        for key in ("turretUp", "rotation"):
+            if key in m and isinstance(m[key], list) and len(m[key]) == 3:
+                m[key] = [-m[key][0], m[key][1], -m[key][2]]
+        out.append(m)
+    return out
+
+
 def ship_entry(kit, name, spec, parts):
     build = {}
     for slot in kit["slots"]:
@@ -1015,6 +1090,11 @@ def ship_entry(kit, name, spec, parts):
              "engineGlowColor": next((p.engine_colour for p in chosen if p.engine_colour), [0.62, 0.16, 1.0]),
              "dealer": {"chance": 3 if "proc" in spec else 1, "systemRace": -1, "minTechLevel": 3 if "proc" in spec else 6},
              "lounge": {"systemRace": -1, "minCampaign": 8, "minRank": 4, "chance": 10 if "proc" in spec else 4}}
+    if spec.get("race") is not None:
+        entry["race"] = spec["race"]
+    if spec.get("traffic_only"):   # a hostile craft of the traffic: flown by its race's fighters, never sold
+        del entry["dealer"], entry["lounge"]
+        entry["traffic"] = {"weight": 1, "races": [spec["race"]]}
     if exhausts == 0:
         lo = min((p.bounds[0][2] for p in chosen if p.bounds), default=-3.0)
         entry["mounts"] = [{"slotType": 3, "position_engine": [0, 0, round(lo * spec["scale"] * UNITS_PER_METRE, 1)]}]
