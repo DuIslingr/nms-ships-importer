@@ -52,8 +52,8 @@ def synthetic_game(folder):
         "HQLight_Mat", 19, "TEXTURES/COMMON/SPACECRAFT/TEST/GLOW.DDS", colour=(0.2, 0.9, 1, 1))
     files["models/common/spacecraft/fighters/parts/cockpita/jet.material.mbin"] = fixtures.make_material("EngineJet_Mat", 2)
 
-    def part(name, meshes, extra_children=(), material="primary", joint_meshes=()):
-        base = f"models/common/spacecraft/fighters/parts/{name}"
+    def part(name, meshes, extra_children=(), material="primary", joint_meshes=(), folder="models/common/spacecraft/fighters/parts"):
+        base = f"{folder}/{name}"
         g, d = fixtures.make_geometry(meshes)
         files[base + ".geometry.mbin.pc"] = g
         files[base + ".geometry.data.mbin.pc"] = d
@@ -64,7 +64,7 @@ def synthetic_game(folder):
         children.extend(extra_children)
         files[base + ".scene.mbin"] = fixtures.make_scene({"name": base.upper().replace("/", "\\"), "type": "MODEL",
                                                            "attrs": {"GEOMETRY": base.upper().replace("/", "\\") + ".GEOMETRY.MBIN"}, "children": children})
-        return "MODELS\\COMMON\\SPACECRAFT\\FIGHTERS\\PARTS\\" + name.upper() + ".SCENE.MBIN"
+        return base.upper().replace("/", "\\") + ".SCENE.MBIN"
 
     pos, uv, n, idx = box(0, 1, 2)
     detail = box(0, 1, 2, 0.1)
@@ -82,11 +82,7 @@ def synthetic_game(folder):
                                                                              "MATERIAL": "MODELS\\COMMON\\SPACECRAFT\\FIGHTERS\\PARTS\\COCKPITA\\PRIMARY.MATERIAL.MBIN"},
                             "transform": ((0, 0, 0), (1, 1, 1), (0, 1, -2.8))})
     engine = part("engine", {"ENGINELOD0": box(0, 1, -2, 0.7), "TURBINELOD0": box(0, 0, 0, 0.3)}, engine_children)
-    gun = part("gun", {"GUNLOD0": box(0, 0, 0, 0.1)})
-    files["models/common/spacecraft/shared/weapons/gun.scene.mbin"] = files.pop("models/common/spacecraft/fighters/parts/gun.scene.mbin")
-    for suffix in (".geometry.mbin.pc", ".geometry.data.mbin.pc"):
-        files["models/common/spacecraft/shared/weapons/gun" + suffix] = files.pop("models/common/spacecraft/fighters/parts/gun" + suffix)
-    gun = "MODELS\\COMMON\\SPACECRAFT\\SHARED\\WEAPONS\\GUN.SCENE.MBIN"
+    gun = part("gun", {"GUNLOD0": box(0, 0, 0, 0.1)}, folder="models/common/spacecraft/shared/weapons")
     acc = part("acc", {"ACCLOD0": box(0, 2, 0, 0.3)})
     # the wings' flap: a joint with a mesh, an idle loop nodding it and a take-off swinging it 90 degrees for flight
     q90 = (0.0, 0.0, math.sin(math.radians(45)), math.cos(math.radians(45)))
@@ -165,7 +161,7 @@ class BuildTests(unittest.TestCase):
             doc, _ = glb.read(os.path.join(out, by_id["fighter-wings_a_acc_b1"]["model"]))
             names = [m["name"] for m in doc["meshes"]]
             self.assertTrue(any("Acclod0" in n for n in names), names)
-            self.assertFalse(any("Gunlod0" in n for n in names), names)   # a weapon scene: the remake draws its own guns
+            self.assertTrue(any("Gunlod0" in n for n in names), names)   # the ship gun is a fixed part of the hull
             acc = next(doc["accessors"][p["primitives"][0]["attributes"]["POSITION"]] for p in doc["meshes"] if "Acclod0" in p["name"])
             self.assertAlmostEqual(acc["max"][0], -0.7, places=2)   # the accessory box at (0, 2, 0) +- 0.3 turned 90 about Z (x = -2) and moved by its node (1, 0, 0)
             doc, _ = glb.read(os.path.join(out, by_id["fighter-wings_a"]["model"]))

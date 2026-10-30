@@ -83,8 +83,8 @@ glows as emission. Landing gear and pads, engine jets (the remake draws its own 
 
 Every part is the whole of its option: a wing with the accessory and nose that No Man's Sky's likeliest choice gives
 it, as one piece; the other choices are further parts of the slot (up to `--max-variants`). A class is one ship type,
-so every part of a kit fits every build of it. The ships' own gun models are left out: the remake draws your weapons on
-the mounts.
+so every part of a kit fits every build of it. No Man's Sky's one ship gun model stays on the hull at the game's gun
+points, as the base game's ships carry theirs; the weapon mounts sit at the same points, so your shots leave its barrels.
 
 **Moving parts.** The parts keep what moves in flight, as the remake plays it (a model's first animation, looped, on
 objects that turn or move): the engines' turbines and every other spinner (No Man's Sky's rotation components: the

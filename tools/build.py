@@ -57,11 +57,12 @@ SKIP_MATERIAL_CLASSES = {2, 12, 22, 24}   # Additive (engine jets: the remake dr
 EMISSIVE_CLASSES = {18, 19}               # Glow, GlowTranslucent
 TRANSLUCENT_CLASSES = {62, 63, 15}        # Translucent, TranslucentPostScene, DoubleSided
 SKIP_NODES = re.compile(r"(landinggear|landing_gear|frontpad|leftpad|rightpad|backpad|_gear\b|shadowmesh)", re.I)
-WEAPON_SCENES = re.compile(r"/shared/weapons/", re.I)   # the ships' gun models: the remake draws its own weapons on the mounts
+WEAPON_SCENES = re.compile(r"/shared/weapons/", re.I)   # the ship gun (one model for every class), a fixed part of the hull
 
 
 def under_weapon(placed):
-    """Whether a placed node sits inside a gun's referenced scene."""
+    """Whether a placed node sits inside the gun's referenced scene (its meshes are kept, its idle and shooting loops
+    are not: the remake draws the shots; its take-off pose is)."""
     return any(n.type == "REFERENCE" and WEAPON_SCENES.search(n.scenegraph) for n in placed.chain)
 
 PALETTE = [("white", "Snow White", "#F2F2F2"), ("silver", "Silver", "#B8BCC2", 0.9, 0.7), ("grey", "Graphite", "#5A5E63"),
@@ -439,8 +440,7 @@ class KitBuilder:
         if not ANIMATIONS:
             return out
         for placed in asm.attachments:
-            if under_weapon(placed):
-                continue
+            weapon = under_weapon(placed)
             ent = scene.game_path(placed.node.attrs["ATTACHMENT"])
             if not self.banks.exists(ent):
                 continue
@@ -449,13 +449,13 @@ class KitBuilder:
             except mbin.MBINError:
                 continue
             rot = comps.get(animation.HASH_ROTATION_COMPONENT)
-            if rot and abs(rot["speed"]) > 1e-6:
+            if rot and abs(rot["speed"]) > 1e-6 and not weapon:
                 out["spins"].append((placed.node, rot["axis"], rot["speed"]))
             comp = comps.get(animation.HASH_ANIMATION_COMPONENT)
             if not comp:
                 continue
             nodes = {n.name.lower(): n for n in placed.scene.root.walk()}
-            loop = animation.flight_loop(comp)
+            loop = None if weapon else animation.flight_loop(comp)
             if loop:
                 an = self.animation_file(loop["filename"])
                 if an:
@@ -541,7 +541,7 @@ class KitBuilder:
                 parent = glb_nodes[n] = w.add_node(n.name if n is not n.scene.root else n.name.rsplit("\\", 1)[-1], parent, t, r, sc)
             return parent
 
-        drawn = [p for p in asm.meshes if not SKIP_NODES.search(p.path) and not under_weapon(p)]
+        drawn = [p for p in asm.meshes if not SKIP_NODES.search(p.path)]
         for i, placed in enumerate(scene.finest_meshes(drawn)):
             g = placed.scene.geometry
             name, cls = self.materials.name_for(placed)
