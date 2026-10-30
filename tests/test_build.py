@@ -148,6 +148,8 @@ class BuildTests(unittest.TestCase):
             guns = [m for m in by_id["fighter-wings_a"]["mounts"] if m["slotType"] == 0]
             self.assertEqual(len(guns), 2)
             self.assertEqual(guns[0]["position_engine"], [240.0, 80.0, -80.0])
+            missiles = [m for m in by_id["fighter-wings_a"]["mounts"] if m["slotType"] == 1]
+            self.assertEqual([m["position_engine"] for m in missiles], [m["position_engine"] for m in guns])   # rockets leave the same points
             exhausts = [m for m in by_id["fighter-engine_a"]["mounts"] if m["slotType"] == 3]
             self.assertEqual(len(exhausts), 2)
             self.assertEqual(exhausts[0]["position_engine"], [40.0, 80.0, -184.0])   # the trail 0.3 behind the turned-around thruster

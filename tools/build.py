@@ -280,6 +280,8 @@ def locator_mounts(asm, scale, overrides=None):
         for p in asm.locators:
             if re.match(r"(ext_)?shoot\d*$", p.node.name.lower()):
                 add(p, 0)
+    # No Man's Sky has no second weapon class: rockets leave the same gun points, so the secondaries sit there too
+    mounts += [{"slotType": 1, "position_engine": list(m["position_engine"])} for m in mounts if m["slotType"] == 0]
     for p in asm.locators:
         n = p.node.name.lower()
         if n == "trail" or n.startswith("engine_trail") or re.match(r"(jet|thruster)\d*$", n):
@@ -734,11 +736,12 @@ def ship_entry(kit, name, spec, parts):
             build[slot] = first.id
     chosen = [p for p in parts if p.id in build.values()]
     primaries = sum(1 for p in chosen for m in p.mounts if m["slotType"] == 0)
+    secondaries = sum(1 for p in chosen for m in p.mounts if m["slotType"] == 1)
     exhausts = sum(1 for p in chosen for m in p.mounts if m["slotType"] == 3)
     build["colors"] = dict(DEFAULT_COLORS)
     entry = {"id": kit["id"], "name": name, "description": spec["description"], "race": 0,
              "armor": spec["armor"], "cargo": spec["cargo"], "handling": spec["handling"], "price": spec["price"],
-             "slots": {"primary": max(2, min(primaries, 6)), "secondary": 2, "turret": 0, "equipment": spec["equipment"]},
+             "slots": {"primary": max(2, min(primaries, 6)), "secondary": max(2, min(secondaries, 4)), "turret": 0, "equipment": spec["equipment"]},
              "kit": kit["id"], "kitType": kit["id"], "build": build,
              "engineGlowColor": [0.62, 0.16, 1.0],
              "dealer": {"chance": 3, "systemRace": -1, "minTechLevel": 3},

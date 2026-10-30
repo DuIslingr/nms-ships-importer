@@ -84,7 +84,8 @@ glows as emission. Landing gear and pads, engine jets (the remake draws its own 
 Every part is the whole of its option: a wing with the accessory and nose that No Man's Sky's likeliest choice gives
 it, as one piece; the other choices are further parts of the slot (up to `--max-variants`). A class is one ship type,
 so every part of a kit fits every build of it. No Man's Sky's one ship gun model stays on the hull at the game's gun
-points, as the base game's ships carry theirs; the weapon mounts sit at the same points, so your shots leave its barrels.
+points, as the base game's ships carry theirs; the weapon mounts sit at the same points, so your shots leave its barrels,
+missiles too (No Man's Sky has no second weapon class: its rockets fire from the same two gun points).
 
 **Part bonuses.** Each part changes the ship a little by its size against the other parts of its slot, the flavour
 No Man's Sky had before its 4.0 update (big wings carried more): wider wings and sails give cargo and cost handling
