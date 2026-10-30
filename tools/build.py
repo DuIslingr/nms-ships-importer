@@ -1104,8 +1104,8 @@ def ship_entry(kit, name, spec, parts):
         del entry["dealer"], entry["lounge"]
         entry["traffic"] = {"weight": 1, "races": [spec["race"]]}
     else:
-        class_id = kit["id"].split("-")[0]
-        races, weight = TRAFFIC.get(class_id, FIXED_TRAFFIC)
+        class_id = kit["id"].split("-")[0]   # "shuttle_double-boxdouble" -> "shuttle_double" -> "shuttle"
+        races, weight = TRAFFIC.get(class_id) or TRAFFIC.get(class_id.split("_")[0]) or FIXED_TRAFFIC
         entry["traffic"] = {"weight": weight, "races": races}
     if exhausts == 0:
         lo = min((p.bounds[0][2] for p in chosen if p.bounds), default=-3.0)
