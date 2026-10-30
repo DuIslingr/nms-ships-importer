@@ -54,6 +54,25 @@ CLASSES = {
                   equipment=10, description="A No Man's Sky solar ship: sails for the sun's wind. Customize it in the hangar."),
     "sentinel": dict(proc="sentinelship/sentinelship_proc", name="Sentinel Interceptor", scale=4.0, armor=420, cargo=40, handling=165,
                      price=6900000, equipment=12, description="A No Man's Sky sentinel interceptor: a machine hull. Customize it in the hangar."),
+    "living": dict(proc="s-class/bioparts/bioship_proc", name="Living Ship", scale=3.5, armor=280, cargo=45, handling=150, price=3800000,
+                   equipment=11, description="A No Man's Sky living ship: a grown hull with organic engines. Customize it in the hangar."),
+    # the fixed designs: one hull each (a kit of one part, so they take the paint slots like the others)
+    "golden_vector": dict(scene="fighters/fighterclassicgold", name="Golden Vector", scale=4.0, armor=280, cargo=32, handling=165, price=2600000,
+                          equipment=10, description="No Man's Sky's Golden Vector: the classic fighter in gold."),
+    "rasamama": dict(scene="fighters/rasamamagold", name="Rasamama Gold", scale=4.0, armor=270, cargo=34, handling=160, price=2400000,
+                     equipment=10, description="No Man's Sky's gold Rasamama fighter."),
+    "utopia_speeder": dict(scene="fighters/vrspeeder", name="Utopia Speeder", scale=4.0, armor=250, cargo=30, handling=175, price=3200000,
+                           equipment=10, description="No Man's Sky's Utopia Speeder: a sleek fixed-design racer."),
+    "starborn_runner": dict(scene="fighters/vintageinterceptor", name="Starborn Runner", scale=4.0, armor=360, cargo=36, handling=160,
+                            price=4200000, equipment=11, description="No Man's Sky's Starborn Runner: a sentinel-styled interceptor of fixed design."),
+    "racer": dict(scene="fighters/wracer", name="Racer", scale=3.5, armor=240, cargo=30, handling=180, price=3000000,
+                  equipment=10, description="No Man's Sky's racer: a long, narrow fixed hull built for speed."),
+    "racer_se": dict(scene="fighters/wracerse", name="Racer SE", scale=3.5, armor=250, cargo=30, handling=180, price=3400000,
+                     equipment=10, description="No Man's Sky's racer, special edition."),
+    "boundary_herald": dict(scene="fighters/spookship", name="Boundary Herald", scale=1.5, armor=520, cargo=60, handling=110, price=6500000,
+                            equipment=12, description="No Man's Sky's Boundary Herald: a disc hull fanning glowing feather wings."),
+    "bio_fighter": dict(scene="s-class/bioparts/biofighter", name="Bio Fighter", scale=2.5, armor=300, cargo=40, handling=160, price=4500000,
+                        equipment=11, description="No Man's Sky's grown fighter: a living hull of fixed shape."),
 }
 SKIP_MATERIAL_CLASSES = {2, 12, 22, 24}   # Additive (engine jets: the remake draws its own flames), Decal, GunAdditive, GunGlow
 EMISSIVE_CLASSES = {18, 19}               # Glow, GlowTranslucent
@@ -108,7 +127,7 @@ def engine_role(mat):
     if not mat:
         return None
     maps = " ".join(s["map"] for s in mat["samplers"])
-    if mat["material_class"] == 2 and JET_MAP.search(maps):
+    if mat["material_class"] == 2 and (JET_MAP.search(maps) or mat["name"].lower().startswith("enginejet") or "engine" in maps.lower()):
         return "flame"
     if mat["material_class"] in EMISSIVE_CLASSES and GLOW_MAP.search(maps):
         return "engineglow"
@@ -126,7 +145,9 @@ def role_of(material_name, mat):
         return "paint2"
     if "tertiary" in n:
         return "paint3"
-    if mat and mat["material_class"] in EMISSIVE_CLASSES or "light" in n or "glow" in n:
+    if mat and any(s["name"].lower() in ("gmasksmap", "gnormalmap") for s in mat["samplers"]):
+        pass   # a full surface (masks / normal maps): the living ships' skins are "Glow" class but not light cards
+    elif mat and mat["material_class"] in EMISSIVE_CLASSES or "light" in n or "glow" in n:
         return "lights"
     if "trans" in n or "glass" in n:
         return "glass"
@@ -424,6 +445,19 @@ class KitBuilder:
 
     def plan(self, class_id, spec):
         """[(kit id, kit name, slots, [Part], scene path, descriptor)] for a class, or None when its files are missing."""
+        if "scene" in spec:   # a fixed design: the whole scene (its own descriptor's likeliest choices) as one hull part
+            scene_path = SPACECRAFT + spec["scene"] + ".scene.mbin"
+            if not self.banks.exists(scene_path):
+                self.report.warn(f"{class_id}: {scene_path} is not in the archives; skipped")
+                return None
+            desc_path = scene_path[: -len(".scene.mbin")] + ".descriptor.mbin"
+            d, picks = None, set()
+            if self.banks.exists(desc_path):
+                d = descriptors.Descriptor(self.banks.read(desc_path))
+                for g in d.groups:
+                    descriptors.default_picks(g, picks)
+            part = Part(ident(class_id, "hull"), "hull", spec["name"], None, picks)
+            return [(class_id, spec["name"], ["hull"], [part], scene_path, d)]
         proc = SPACECRAFT + spec["proc"]
         scene_path, desc_path = proc + ".scene.mbin", proc + ".descriptor.mbin"
         if not (self.banks.exists(scene_path) and self.banks.exists(desc_path)):
@@ -645,8 +679,8 @@ class KitBuilder:
     # -- building --
 
     def build_part(self, scene_path, d, part, scale):
-        asm = scene.Assembler(self.banks, descriptors.chooser(d, part.picks), pick=self.pick)
-        if part.option is None:   # the base: everything outside the options
+        asm = scene.Assembler(self.banks, descriptors.chooser(d, part.picks) if d else None, pick=self.pick)
+        if part.option is None:   # the base: everything outside the options (or a fixed design's whole scene)
             asm.assemble(scene_path)
         else:
             asm.assemble_node(scene_path, part.option.name, within=part.within)
@@ -860,8 +894,8 @@ def ship_entry(kit, name, spec, parts):
              "slots": {"primary": max(2, min(primaries, 6)), "secondary": max(2, min(secondaries, 4)), "turret": 0, "equipment": spec["equipment"]},
              "kit": kit["id"], "kitType": kit["id"], "build": build,
              "engineGlowColor": next((p.engine_colour for p in chosen if p.engine_colour), [0.62, 0.16, 1.0]),
-             "dealer": {"chance": 3, "systemRace": -1, "minTechLevel": 3},
-             "lounge": {"systemRace": -1, "minCampaign": 8, "minRank": 4, "chance": 10}}
+             "dealer": {"chance": 3 if "proc" in spec else 1, "systemRace": -1, "minTechLevel": 3 if "proc" in spec else 6},
+             "lounge": {"systemRace": -1, "minCampaign": 8, "minRank": 4, "chance": 10 if "proc" in spec else 4}}
     if exhausts == 0:
         lo = min((p.bounds[0][2] for p in chosen if p.bounds), default=-3.0)
         entry["mounts"] = [{"slotType": 3, "position_engine": [0, 0, round(lo * spec["scale"] * UNITS_PER_METRE, 1)]}]
@@ -884,7 +918,7 @@ def build(banks, out, classes=None, report=None, limit_parts=None, max_texture=M
     kits, ships = [], []
     for class_id in classes:
         spec = CLASSES[class_id]
-        log(f"{spec['name']} ({SPACECRAFT}{spec['proc']})")
+        log(f"{spec['name']} ({SPACECRAFT}{spec.get('proc') or spec.get('scene')})")
         for kit, name, parts in kb.build_class(class_id, spec, limit_parts):
             pal, slots, presets = colour_slots()
             kit["palettes"], kit["colorSlots"], kit["presets"] = pal, slots, presets

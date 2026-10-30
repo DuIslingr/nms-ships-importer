@@ -285,3 +285,31 @@ class BuildTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(HAVE_ZSTD, "no zstd")
+class FixedDesignTests(unittest.TestCase):
+    def test_fixed_design_is_a_one_part_kit(self):
+        """A class given by a scene (no procedural descriptor) becomes a kit of one hull part and a ship built from it."""
+        with tempfile.TemporaryDirectory() as d:
+            pc = synthetic_game(d)
+            out = os.path.join(d, "nms_ships")
+            banks = hgpak.Banks(pc)
+            build.CLASSES["test_fixed"] = dict(scene="fighters/parts/cockpita", name="Test Fixed", scale=4.0, armor=300, cargo=30, handling=150,
+                                               price=1000000, equipment=8, description="A fixed hull.")
+            try:
+                kits, ships, report = build.build(banks, out, ["test_fixed"])
+            finally:
+                del build.CLASSES["test_fixed"]
+            self.assertEqual(report.warnings, [])
+            self.assertEqual(len(kits), 1)
+            kit = kits[0]
+            self.assertEqual(kit["slots"], ["hull"])
+            self.assertEqual([p["id"] for p in kit["parts"]], ["test_fixed-hull"])
+            self.assertNotIn("stats", kit["parts"][0])
+            doc, _ = glb.read(os.path.join(out, kit["parts"][0]["model"]))
+            self.assertEqual(len(doc["meshes"]), 1)   # the cockpit's LOD0 only
+            ship = ships[0]
+            self.assertEqual(ship["kit"], "test_fixed")
+            self.assertEqual(ship["build"]["hull"], "test_fixed-hull")
+            self.assertEqual(ship["dealer"]["chance"], 1)   # a unique: rare at the dealers

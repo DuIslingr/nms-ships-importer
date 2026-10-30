@@ -48,7 +48,7 @@ elsewhere; `--zip` also zips it). A build of every class takes a minute or two.
 
 | Option | |
 |---|---|
-| `--classes fighter,hauler` | Only these classes (`--list-classes` shows them: fighter, hauler, explorer, shuttle, exotic, solar, sentinel). Default: all. |
+| `--classes fighter,hauler` | Only these classes (`--list-classes` shows them: fighter, hauler, explorer, shuttle, exotic, solar, sentinel, living, and the fixed designs; `procedural` / `fixed` for those groups). Default: all. |
 | `--max-parts N` | Parts per slot at most (default 14): the fighters have ten wings, the shuttles dozens of hull pieces. |
 | `--max-variants N` | Variants of one part over its nested accessories (default 4): `Wings F`, `Wings F (Acc A3)` ... |
 | `--max-texture N` | The textures' longest side (default 2048; 1024 for phones). |
@@ -73,6 +73,15 @@ One kit per No Man's Sky class, or per hull where a class begins with a whole-hu
 | Exotic (royal, squid) | the hull; the royal's engine, wings, cockpit, top wing | `S-CLASS/S-CLASS_PROC` |
 | Solar | tips, wings, body, sails | `SAILSHIP/SAILSHIP_PROC` |
 | Sentinel Interceptor | base (its guns), pit, top flap, wings, skirt | `SENTINELSHIP/SENTINELSHIP_PROC` |
+| Living Ship | base, top, top accessory, feet, cockpits, engine, wings | `S-CLASS/BIOPARTS/BIOSHIP_PROC` |
+
+And the game's fixed designs, each a kit of one hull (so it takes the paint slots like the others): the Golden Vector
+and the gold Rasamama (the classic fighters, `FIGHTERS/FIGHTERCLASSICGOLD`, `RASAMAMAGOLD`), the Utopia Speeder
+(`VRSPEEDER`), the Starborn Runner (`VINTAGEINTERCEPTOR`), the two racers (`WRACER`, `WRACERSE`), the Boundary Herald
+(`SPOOKSHIP`, the disc with the glowing feather wings) and the grown Bio Fighter (`S-CLASS/BIOPARTS/BIOFIGHTER`). They
+are rarer at the dealers. `--classes fixed` builds only these, `--classes procedural` only the customizable classes; the
+names are the importer's (`CLASSES` in `tools/build.py` renames them). The modular corvettes of the Voyagers update are a
+different system (a hull built from `BIGGS/MODULES` pieces) and are not brought over.
 
 Each kit's ship (ships.json) has the class's look in stats: fighters fast and lightly loaded, haulers slow with a big
 hold, exotics the best handling. Their guns sit where No Man's Sky puts them (the wings' gun references), their exhausts
