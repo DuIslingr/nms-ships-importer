@@ -72,7 +72,7 @@ One kit per No Man's Sky class, or per hull where a class begins with a whole-hu
 | Shuttle (four hulls) | the hull chain, its cockpit, hull segments, wings, accessories | `SHUTTLE/SHUTTLE_PROC` |
 | Exotic (royal, squid) | the hull; the royal's engine, wings, cockpit, top wing | `S-CLASS/S-CLASS_PROC` |
 | Solar | tips, wings, body, sails | `SAILSHIP/SAILSHIP_PROC` |
-| Sentinel Interceptor | pit, top flap, wings, skirt | `SENTINELSHIP/SENTINELSHIP_PROC` |
+| Sentinel Interceptor | base (its guns), pit, top flap, wings, skirt | `SENTINELSHIP/SENTINELSHIP_PROC` |
 
 Each kit's ship (ships.json) has the class's look in stats: fighters fast and lightly loaded, haulers slow with a big
 hold, exotics the best handling. Their guns sit where No Man's Sky puts them (the wings' gun references), their exhausts

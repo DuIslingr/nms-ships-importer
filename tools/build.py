@@ -276,6 +276,10 @@ def locator_mounts(asm, scale, overrides=None):
         n = p.node.name.lower()
         if re.match(r"gun\d*ref", n) or n.startswith("shipgun") or n.startswith("gunref") or n.startswith("weaponref"):
             add(p, 0)
+    if not mounts:   # the sentinel interceptors' guns are part of the hull mesh: their muzzles are EXT_SHOOT locators
+        for p in asm.locators:
+            if re.match(r"(ext_)?shoot\d*$", p.node.name.lower()):
+                add(p, 0)
     for p in asm.locators:
         n = p.node.name.lower()
         if n == "trail" or n.startswith("engine_trail") or re.match(r"(jet|thruster)\d*$", n):
@@ -298,6 +302,7 @@ class KitBuilder:
         self.max_parts = max_parts
         self.descriptor_cache = {}
         self.anim_cache = {}
+        self.base_cache = {}
 
     def pick(self, scene_path, descriptor_bytes):
         """The chooser for a part scene's own descriptor: its likeliest option at every level."""
@@ -343,6 +348,9 @@ class KitBuilder:
 
     def kit(self, kit_id, name, chain, groups, scene_path, d):
         parts, slots = [], []
+        if self.has_base(scene_path, d):   # the model's meshes and gun points outside every option (the sentinels' guns)
+            slots.append("base")
+            parts.append(Part(ident(kit_id, "base"), "base", "Hull", None, set()))
         if chain:
             picks = {o.id.lower() for o in chain}
             slots.append(chain[0].slot)
@@ -356,6 +364,19 @@ class KitBuilder:
             slots.append(slot)
             parts.extend(self.option_parts(kit_id, g, within=within, slot=slot))
         return kit_id, name, slots, parts, scene_path, d
+
+    def has_base(self, scene_path, d):
+        """Whether the procedural scene draws meshes or holds gun points outside every option (one check per scene)."""
+        if scene_path in self.base_cache:
+            return self.base_cache[scene_path]
+        result = False
+        if self.banks is not None and self.banks.exists(scene_path):
+            asm = scene.Assembler(self.banks, descriptors.chooser(d, set()), pick=self.pick)
+            asm.assemble(scene_path)
+            result = any(not SKIP_NODES.search(p.path) for p in asm.meshes) or \
+                any(re.match(r"(ext_)?shoot\d*$", p.node.name.lower()) for p in asm.locators)
+        self.base_cache[scene_path] = result
+        return result
 
     def option_parts(self, kit_id, group, within=None, slot=None):
         slot = slot or group.slot
@@ -519,7 +540,10 @@ class KitBuilder:
 
     def build_part(self, scene_path, d, part, scale):
         asm = scene.Assembler(self.banks, descriptors.chooser(d, part.picks), pick=self.pick)
-        asm.assemble_node(scene_path, part.option.name, within=part.within)
+        if part.option is None:   # the base: everything outside the options
+            asm.assemble(scene_path)
+        else:
+            asm.assemble_node(scene_path, part.option.name, within=part.within)
         anims = self.animations_for(asm)
         overrides = anims["overrides"]
         animated = {node for node, *_ in anims["loop"]} | {node for node, *_ in anims["spins"]}
@@ -578,12 +602,12 @@ class KitBuilder:
                 w.add_mesh(f"{part.id}_{i:03d}_{placed.node.name}", pos, nrm, m.uvs, idx, mat)
             lo, hi = np.minimum(lo, pos.min(0)), np.maximum(hi, pos.max(0))
             tris += m.triangle_count
-        if tris == 0:
+        part.mounts = locator_mounts(asm, scale, overrides)
+        if tris == 0 and not (part.option is None and part.mounts):
             return False
         self.write_animations(w, anims, glb_nodes, chains, ensure, overrides)
         part.triangles = tris
-        part.bounds = (lo.tolist(), hi.tolist())
-        part.mounts = locator_mounts(asm, scale, overrides)
+        part.bounds = (lo.tolist(), hi.tolist()) if tris else None
         part.animated = bool(w.animations)
         for ref in asm.missing:
             self.report.warn(f"{part.id}: referenced scene missing: {ref}")
