@@ -68,7 +68,7 @@ One kit per No Man's Sky class, or per hull where a class begins with a whole-hu
 |---|---|---|
 | Fighter | cockpit, engine, wings (with their accessories and noses as variants) | `FIGHTERS/FIGHTER_PROC` |
 | Hauler | cockpit, hull (its wings and engines as variants) | `DROPSHIPS/DROPSHIP_PROC` |
-| Explorer (two frames) | cockpit, front accessory, back, wings / rear wings | `SCIENTIFIC/SCIENTIFIC_PROC` |
+| Explorer (two frames) | the frame, its cockpit, front accessory, back, wings / rear wings | `SCIENTIFIC/SCIENTIFIC_PROC` |
 | Shuttle (four hulls) | the hull chain, its cockpit, hull segments, wings, accessories | `SHUTTLE/SHUTTLE_PROC` |
 | Exotic (royal, squid) | the hull; the royal's engine, wings, cockpit, top wing | `S-CLASS/S-CLASS_PROC` |
 | Solar | tips, wings, body, sails | `SAILSHIP/SAILSHIP_PROC` |

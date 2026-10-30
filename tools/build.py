@@ -334,20 +334,24 @@ class KitBuilder:
             parts.append(Part(ident(kit_id, "hull"), chain[0].slot, " ".join(pretty(o.name) for o in chain), chain[0], picks))
         within = chain[-1].name if chain else None
         for g in groups:
-            if g.slot not in slots:
-                slots.append(g.slot)
-            parts.extend(self.option_parts(kit_id, g, within=within))
+            slot, n = g.slot, 1   # a nested group named like the hull's (the explorer's cockpit in its cockpit frame),
+            while slot in slots:   # or twice under one option (the shuttle's hull segments): a slot of its own each
+                n += 1
+                slot = f"{g.slot}{n}"
+            slots.append(slot)
+            parts.extend(self.option_parts(kit_id, g, within=within, slot=slot))
         return kit_id, name, slots, parts, scene_path, d
 
-    def option_parts(self, kit_id, group, within=None):
+    def option_parts(self, kit_id, group, within=None, slot=None):
+        slot = slot or group.slot
         out = []
         for o in group.options:
             if o.is_none and len(group.options) > 1:
                 continue
             for v_id, v_name, picks in self.variants(o):
-                if sum(1 for p in out if p.slot == group.slot) >= self.max_parts:
+                if len(out) >= self.max_parts:
                     break
-                out.append(Part(ident(kit_id, v_id), group.slot, v_name, o, picks, within))
+                out.append(Part(ident(kit_id, v_id if slot == group.slot else f"{slot}-{v_id}"), slot, v_name, o, picks, within))
         return out
 
     def variants(self, option):
