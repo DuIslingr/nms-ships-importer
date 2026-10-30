@@ -32,7 +32,9 @@ unpacking first.
   - **iOS** (Oodle Kraken): `python3 -m pip install pyooz` (the open-source ooz decoder). The iOS textures are ASTC,
     which Pillow can't read: install `python3 -m pip install astc_decomp_faster` too, or put ARM's `astcenc` on the
     PATH; without one the iOS build gets its models but no textures (the importer says so).
-  The importer tells you which package it needs when an archive asks for it.
+  The importer tells you which package it needs when an archive asks for it. The iOS game's models are lighter than
+  the PC game's (its big hulls keep a coarser mesh as their finest), so a mod built from the iOS archives is a smaller,
+  phone-friendly build of the same ships.
 
 ## Building the mod
 

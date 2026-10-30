@@ -67,7 +67,7 @@ def synthetic_game(folder):
 
     pos, uv, n, idx = box(0, 1, 2)
     detail = box(0, 1, 2, 0.1)
-    cockpit_a = part("cockpita", {"COCKPITALOD0": (pos, uv, n, idx), "DETAILLOD1": detail})
+    cockpit_a = part("cockpita", {"COCKPITALOD0": (pos, uv, n, idx), "COCKPITALOD1": detail})
     cockpit_b = part("cockpitb", {"COCKPITBLOD0": box(0, 1, 2.5)})
     jet = part("jet", {"JETLOD0": box(0, 0, -3)}, material="jet")
     glow = part("glow", {"GLOWLOD0": box(0, 0, -2.5, 0.2)}, material="glow")
@@ -134,7 +134,7 @@ class BuildTests(unittest.TestCase):
             self.assertEqual(exhausts[0]["position_engine"], [40.0, 80.0, -184.0])   # the trail 0.3 behind the turned-around thruster
             self.assertEqual(exhausts[0]["glowColor"], [0.6, 0.1, 1.0])
             self.assertNotIn("mounts", by_id["fighter-cockpit_a"])
-            # the GLBs: the cockpit's LOD0 box only (its LOD1 detail left out), the acc variant holds the turned accessory
+            # the GLBs: the cockpit's LOD0 box only (its coarser LOD1 left out), the acc variant holds the turned accessory
             doc, binary = glb.read(os.path.join(out, by_id["fighter-cockpit_a"]["model"]))
             self.assertEqual(len(doc["meshes"]), 1)
             self.assertEqual(doc["accessors"][doc["meshes"][0]["primitives"][0]["attributes"]["POSITION"]]["count"], 8)

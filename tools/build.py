@@ -419,12 +419,10 @@ class KitBuilder:
         w = glb.Writer()
         tris = 0
         lo, hi = np.array([1e9] * 3), np.array([-1e9] * 3)
-        for i, placed in enumerate(asm.meshes):
+        for i, placed in enumerate(scene.finest_meshes(asm.meshes)):
             if SKIP_NODES.search(placed.path):
                 continue
             g = placed.scene.geometry
-            if not g.has(placed.node.name):
-                continue
             name, cls = self.materials.name_for(placed)
             if cls in SKIP_MATERIAL_CLASSES:
                 continue

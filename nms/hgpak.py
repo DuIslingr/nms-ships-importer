@@ -114,14 +114,13 @@ class Decompressor:
                 self._fn = _lz4()
             else:
                 raise HGPAKError(f"unknown codec {self.codec}")
+        # Oodle and LZ4 need the output size. Every chunk of the iOS archives, the last one included, decompresses to
+        # a whole chunk (the game pads the stream), and pyooz corrupts its heap when asked for any other amount: so a
+        # whole chunk is asked for (`alternative`, the chunk size, is given for the last chunk; the others are whole).
+        n = alternative or size
         try:
-            return self._fn(chunk, size)
+            return self._fn(chunk, n)
         except Exception as e:
-            if alternative and alternative != size:
-                try:
-                    return self._fn(chunk, alternative)
-                except Exception:
-                    pass
             raise HGPAKError(f"a {self.codec} chunk failed to decompress: {e}")
 
 
@@ -163,12 +162,13 @@ class Archive:
                 offsets.append(o)
                 o += (z + 15) & ~15
             self.chunk_offsets = offsets
-            for c in CHUNK_SIZES:
-                if math.ceil(self.total / c) == chunk_count:
-                    self.chunk_size = c
-                    break
-            if not self.chunk_size:
+            fits = [c for c in CHUNK_SIZES if math.ceil(self.total / c) == chunk_count]
+            if not fits:
                 raise HGPAKError(f"{path}: {chunk_count} chunks cover {self.total} bytes with no known chunk size")
+            if len(fits) > 1 and codec is None:   # a small archive: the codec tells (Zstandard archives use 0x10000)
+                self.f.seek(offsets[0])
+                codec = sniff_codec(self.f.read(min(16, self.chunk_sizes[0]))) if self.chunk_sizes[0] != fits[0] else None
+            self.chunk_size = fits[0] if len(fits) == 1 or codec in (None, "zstd") else fits[-1]
         self.decompress = Decompressor(codec)
         self._cache = OrderedDict()
         manifest = self._read_entry(0)
@@ -201,7 +201,7 @@ class Archive:
         self.f.seek(self.chunk_offsets[i])
         stored = self.f.read(self.chunk_sizes[i])
         expected = min(self.chunk_size, self.total - i * self.chunk_size)
-        c = self.decompress(stored, expected, self.chunk_size if i == len(self.chunk_sizes) - 1 else None)
+        c = self.decompress(stored, expected, self.chunk_size if expected < self.chunk_size else None)
         self._cache[i] = c
         if len(self._cache) > CHUNK_CACHE:
             self._cache.popitem(last=False)

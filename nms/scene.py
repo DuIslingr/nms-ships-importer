@@ -9,6 +9,7 @@ show is the descriptor's choice (descriptors.py), so this module only walks what
 """
 import os
 import posixpath
+import re
 
 import numpy as np
 
@@ -131,7 +132,8 @@ class Assembler:
 
     `choose(node)` returns False to leave a node (and its subtree) out: the descriptor's unpicked options. A REFERENCE
     node's scene is loaded through `banks` (cached) and put at the node's world matrix. `meshes`, `locators`, `lights`
-    and `references` collect what the walk found; LODLEVEL above 0 and COLLISION nodes are skipped.
+    and `references` collect what the walk found; COLLISION nodes are skipped. Every LOD's meshes are collected (the
+    iOS game keeps LOD1 as the finest of its big hulls): `finest_meshes()` picks the finest with a stream per mesh.
     """
 
     def __init__(self, banks, choose=None, max_depth=12, pick=None):
@@ -196,8 +198,6 @@ class Assembler:
     def _walk(self, node, parent_matrix, scene, depth, trail):
         if node.type == "COLLISION":
             return
-        if node.type == "MESH" and node.lod > 0:
-            return
         if node is not scene.root and not self.choose(node):
             return
         own = self._chooser(scene)
@@ -223,6 +223,22 @@ class Assembler:
             # a REFERENCE node's own children (a procedural model's nested options sit under their parent's reference)
         for c in node.children:
             self._walk(c, M, scene, depth, path)
+
+
+LOD_SUFFIX = re.compile(r"lod\d+", re.I)
+
+
+def finest_meshes(meshes):
+    """Of the placed meshes, those of the finest LOD level that has a stream, per mesh family (`BodyLOD0`, `BodyLOD1`
+    and their `SUB1Body...` children are families of their own): the iOS game ships no LOD0 for its big hulls."""
+    best = {}
+    for p in meshes:
+        if not p.scene.geometry.has(p.node.name):
+            continue
+        key = LOD_SUFFIX.sub("", p.path).lower()
+        if key not in best or p.node.lod < best[key]:
+            best[key] = p.node.lod
+    return [p for p in meshes if p.scene.geometry.has(p.node.name) and best.get(LOD_SUFFIX.sub("", p.path).lower()) == p.node.lod]
 
 
 def material_of(banks, placed, cache):
