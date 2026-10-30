@@ -276,7 +276,7 @@ class BuildTests(unittest.TestCase):
         kb = build.KitBuilder(None, "/nonexistent", build.Report())
         kits = []
         kb.expand("exotic", "Exotic", [], desc.groups, kits, "x.scene.mbin", desc)
-        self.assertEqual([(k[0], k[1], k[2]) for k in kits], [("exotic-roy", "Exotic Roy", ["ship", "wings"]), ("exotic-squ", "Exotic Squ", ["ship"])])
+        self.assertEqual([(k[0], k[1], k[2]) for k in kits], [("exotic-roy", "Exotic Royal", ["ship", "wings"]), ("exotic-squ", "Exotic Squid", ["ship"])])
         roy_parts = kits[0][3]
         self.assertEqual([p.id for p in roy_parts], ["exotic_roy-hull", "exotic_roy-wings_a", "exotic_roy-wings_b"])
         self.assertEqual(roy_parts[0].picks, {"_ship_roy"})

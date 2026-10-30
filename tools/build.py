@@ -93,6 +93,8 @@ PALETTE = [("white", "Snow White", "#F2F2F2"), ("silver", "Silver", "#B8BCC2", 0
            ("brown", "Rust", "#7A4A2A"), ("gold", "Gold", "#C9A227", 1.0, 0.75)]
 LIGHTS = [("white", "White", "#FFFFFF"), ("cyan", "Cyan", "#49D6FF"), ("amber", "Amber", "#FFB347"), ("red", "Red", "#FF4A3A"),
           ("green", "Green", "#4AFF7A"), ("violet", "Violet", "#B06CFF"), ("blue", "Blue", "#4A6AFF")]
+HULL_NAMES = {"aroot": "A", "droot": "D", "roy": "Royal", "squ": "Squid", "double": "Twin", "single": "Single",
+              "boxdouble": "Box", "cylinderdouble": "Cylinder", "cylinderstart": "Cylinder", "box": "Box"}   # the descriptors' hull ids as names
 DEFAULT_COLORS = {"paint1": "white", "paint2": "grey", "paint3": "orange", "lights": "cyan", "engines": "violet"}
 
 
@@ -478,7 +480,7 @@ class KitBuilder:
             for o in hulls:
                 suffix = short(o).replace(g.slot, "", 1).strip("_") or short(o)
                 kid = ident(kit_id, suffix) if len(hulls) > 1 else kit_id
-                nm = f"{name} {pretty(suffix)}" if len(hulls) > 1 else name
+                nm = f"{name} {HULL_NAMES.get(suffix, pretty(suffix))}" if len(hulls) > 1 else name
                 if o.groups:
                     self.expand(kid, nm, chain + [o], o.groups, kits, scene_path, d)
                 else:
