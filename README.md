@@ -83,7 +83,19 @@ glows as emission. Landing gear and pads, engine jets (the remake draws its own 
 
 Every part is the whole of its option: a wing with the accessory and nose that No Man's Sky's likeliest choice gives
 it, as one piece; the other choices are further parts of the slot (up to `--max-variants`). A class is one ship type,
-so every part of a kit fits every build of it.
+so every part of a kit fits every build of it. The ships' own gun models are left out: the remake draws your weapons on
+the mounts.
+
+**Moving parts.** The parts keep what moves in flight, as the remake plays it (a model's first animation, looped, on
+objects that turn or move): the engines' turbines and every other spinner (No Man's Sky's rotation components: the
+royal exotic's engine rings, the solar ships' spinning engine parts, the shuttles' and haulers' rotating pods), and the
+idle loops some parts have (the fighter wing with the droid on it, the living ships' breathing). Parts that swing out
+for flight (the royal exotic's wings folding vertical, the fighters' folding wings, the squid's nose and engines) are
+built in their **flying pose**, the end of their take-off animation, and their take-off and landing tracks are kept in
+the GLB after the loop, for the day the remake plays a one-shot on launch and landing (`--transitions loop` plays
+take-off and landing in a loop instead; `rest` leaves everything as modelled, the landed pose). Landing gear, hatches,
+the pilot getting in and out and the thrusters' throttle flaps (control animations) are not exported.
+`--no-animations` builds everything static.
 
 ## How it reads the game
 
@@ -97,6 +109,7 @@ formats):
 - `scene.py`: a scene tree, its references resolved, every mesh, locator and light placed in one frame.
 - `geometry.py`: the vertex streams (half-float positions and UVs, octahedral packed normals) as arrays.
 - `textures.py`: DDS (BC1 / BC4 / BC5 / BC7 through Pillow, ASTC through an optional decoder) as PNG.
+- `animation.py`: the entity files' animation and rotation components, the `.anim.mbin` keyframes.
 
 `tools/build.py` turns the classes into the mod; `tools/glb.py` writes the GLB parts.
 

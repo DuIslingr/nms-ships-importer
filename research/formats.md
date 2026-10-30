@@ -123,6 +123,34 @@ rebuilt), DX10 BC7 (DXGI 98) and ATI1 (BC4) for single-channel masks; Pillow dec
 roughness, B metallic), `gNormalMap` (`.NORMAL.DDS`). Paint: materials named `*primary*`, `*secondary*`, `*tertiary*`
 (the shared `FIGHTERS/SHARED/PRIMARY.DDS` and the like) take the ship's palette; `gMaterialColourVec4` tints.
 
+## Animations
+
+A model's entity file (`<folder>/<model>/entities/<name>.entity.mbin`, named by the `ATTACHMENT` attribute of one of its
+nodes, usually a LOCATOR `Data`) is a `TkAttachmentData` (name hash 0x6874FF60): AdditionalData list 0x00, Components
+list 0x10 of 0x20-byte `LinkableNMSTemplate` entries, each a template reference (i64 offset from the entry, u32 name
+hash, u32 `EEEEEE01`) plus a string. The components the ships use:
+
+- `TkAnimationComponentData` (0x573A9AA9, 0x1A0): `Idle` TkAnimationData inline at 0x00, `AnimGroup` 0x128, AnimLibraries
+  0x138, `Anims` list 0x148 of TkAnimationData (0x128 each: `Anim` fixed 0x10 at 0x50, `Filename` string 0x70, `AnimType`
+  u32 0xB8 (0 Loop, 1 OneShot, 2 OneShotBlendable, 3 Control), FrameEnd 0xC4, FrameEndGame 0xC8, FrameStart 0xCC,
+  Priority 0xD8, Speed f32 0xDC, StartNode fixed 0x40 at 0xE0, Active 0x120, Additive 0x121). The spacecraft use: `""`
+  / `IDLE` / `FLYINGIDLE` / `COCKPITIDLE` loops (few parts), `TAKEOFF` / `LANDING` one-shots (wings, engines, noses that
+  change shape for flight), `GEARUP` / `GEARDOWN` (landing gear), `ENTER` / `EXIT` / `EJECT` (the pilot), `THRUST`
+  (Control: the thruster flaps follow the throttle).
+- `TkRotationComponentData` (0x8EB35CA7): `Axis` Vector3f 0x00 (padded to 16), `Speed` f32 0x10 (turns per second as
+  this importer reads it: 0.1 the usual spinner, 0.5 the fighters' engine turbines, 2.0 effects; negative reverses),
+  `SyncGroup` i32 0x14, `AlwaysUpdate` 0x18, `UseModelNode` 0x19. The node carrying the attachment (a MESH or a
+  LOCATOR with meshes under it) turns about the axis in its own frame, forever.
+
+`.ANIM.MBIN` is a `TkAnimMetadata` (0x8E7F1986): `StillFrameData` TkAnimNodeFrameData inline at 0x00 (0x30: Rotations
+list 0x00, Scales list 0x10, Translations list 0x20), `AnimFrameData` list 0x30 of TkAnimNodeFrameData, one per frame,
+`NodeData` list 0x40 of TkAnimNodeData (0x20: Node string 0x00, RotIndex 0x10, ScaleIndex 0x14, TransIndex 0x18),
+FrameCount 0x50, NodeCount 0x54, Has30HzFrames 0x58. Rotations are packed 3 x u16 per quaternion (the list header's
+count is the number of u16): `scale = 1 / (0x3FFF sqrt 2)`, `qx = scale ((cx & 0x7FFF) - 0x3FFF)`, `qy` the same from
+`cy`, `qz = scale (cz - 0x3FFF)`, the fourth `sqrt(1 - ...)`, and the dropped component is `(cy >> 15) | ((cx >> 14) & 2)`:
+3 x, 2 y, 1 z, 0 w. Scales and translations are Vector3f (16 bytes). A node's index below the frame lists' length picks
+the animated value; at or past it, the still frame's value at index minus that length. 30 frames per second.
+
 ## Tools that read these formats
 
 monkeyman192/HGPAKTool (the archive spec), monkeyman192/MBINCompiler (libMBIN, the template layouts; v7.10.0.1 for 7.10),
