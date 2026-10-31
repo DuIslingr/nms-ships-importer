@@ -258,6 +258,11 @@ def uniform(mat, name, default=(1, 1, 1, 1)):
     return list(default)
 
 
+# textures the game's materials name but the game doesn't ship, and the shipped one that stands in for each (the
+# shuttles' materials name an overlay normal map; the hull's own base normal map is of the same surface)
+STAND_IN_TEXTURES = {"shuttle.overlay.normal.dds": "shuttle.base.normal.dds"}
+
+
 class Materials:
     """The mod's materials, one per distinct (maps, class, colour): `name_for(placed)` gives the GLB material name and
     adds the entry; `convert(out)` writes the PNGs."""
@@ -275,6 +280,12 @@ class Materials:
         if p in self.textures:
             return self.textures[p][0]
         if not self.banks.exists(p):
+            for missing, stand_in in STAND_IN_TEXTURES.items():
+                if p.endswith(missing) and self.banks.exists(p[: -len(missing)] + stand_in):
+                    self.report.note(f"{p} is not in the archives: {stand_in} stands in")
+                    rel = self.texture(p[: -len(missing)] + stand_in, kind)
+                    self.textures[p] = (rel, kind)
+                    return rel
             self.report.missing_textures.append(p)
             self.textures[p] = (None, kind)
             return None

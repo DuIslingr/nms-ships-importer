@@ -354,3 +354,20 @@ class SoundTests(unittest.TestCase):
             self.assertEqual(n, -1)
             self.assertNotIn("sounds", ships[0])
             self.assertEqual(len(report.warnings), 1)
+
+
+class StandInTextureTests(unittest.TestCase):
+    @unittest.skipUnless(HAVE_ZSTD, "no zstd")
+    def test_shuttle_overlay_normal_falls_back_to_the_base_normal(self):
+        with tempfile.TemporaryDirectory() as d:
+            tex = fixtures.make_dds_dxt1()
+            files = {"textures/common/spacecraft/shuttle/shared/shuttle.base.normal.dds": tex}
+            pc = os.path.join(d, "GAMEDATA", "PCBANKS")
+            os.makedirs(pc)
+            fixtures.write(os.path.join(pc, "NMSARC.Tex.pak"), fixtures.make_hgpak(files))
+            report = build.Report()
+            mats = build.Materials(hgpak.Banks(pc), report)
+            self.assertEqual(mats.texture("TEXTURES/COMMON/SPACECRAFT/SHUTTLE/SHARED/SHUTTLE.OVERLAY.NORMAL.DDS", "n"), "maps/shuttle_shared_shuttle_base_normal_n.png")
+            self.assertEqual(report.missing_textures, [])
+            self.assertIsNone(mats.texture("TEXTURES/COMMON/SPACECRAFT/SHUTTLE/SHARED/SHUTTLE.OTHER.DDS", "d"))
+            self.assertEqual(len(report.missing_textures), 1)

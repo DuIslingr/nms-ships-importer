@@ -93,7 +93,7 @@ hold, exotics the best handling. Their guns sit where No Man's Sky puts them (th
 at the thrusters, with the engine light's colour. Five colour slots (primary, secondary and tertiary paint: No Man's
 Sky's own paint materials; lights; engines) with a palette of fourteen paints and seven light colours, and five preset
 schemes. The parts keep No Man's Sky's materials: base colour, the masks map as metallic / smoothness, the normal map,
-glows as emission. Landing gear and pads, engine jets (the remake draws its own flames) and decals are left out.
+glows as emission. Landing gear and pads, engine jets (the remake draws its own flames) and decals are left out. The shuttles' materials name an overlay normal map the game doesn't ship; their hull's base normal map stands in for it.
 
 Every part is the whole of its option: a wing with the accessory and nose that No Man's Sky's likeliest choice gives
 it, as one piece; the other choices are further parts of the slot (up to `--max-variants`). A class is one ship type,
