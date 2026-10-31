@@ -8,8 +8,14 @@ SpookShip, Pirate) as speed layers (`..._Space_Speed1..4`, front and rear): the 
 one engine loop, the boost start / loop / end / power-up one-shots its boost sounds. The NPC craft have engine loops
 of their own (drones, the police ship, the freighters and frigates).
 """
+from concurrent import futures
+import copy
 import os
 import re
+import shutil
+import subprocess
+
+import numpy as np
 
 # a voice: the engine loop and the boost sounds, as (path pattern, name pattern) pairs, the first matches taken
 VOICES = {
@@ -71,6 +77,9 @@ WEAPON_SOUNDS = {
     "grafted_eyes": dict(shot=(r"\\Wpn_Ship_Laser\\Wpn_Ship_Laser_01", r"^Wpn_Ship_Laser01_02$"), loops=True),
 }
 AUDIO_DIR = "audio"
+# An engine loop's level in the mix at top speed (its RMS x its volume): EVERSPACE 2's ships sit at about this. The clips differ
+# by 2.5 x, so one fixed volume left most of them buried under the music. At a standstill it plays at ENGINE_IDLE of that.
+ENGINE_LEVEL, ENGINE_IDLE, ENGINE_MAX_VOLUME = 0.11, 0.55, 0.95
 
 
 class Converter:
@@ -81,7 +90,10 @@ class Converter:
         self.done = {}
         self.failed = 0
 
-    def file(self, sound):
+    def base(self, sound):
+        return os.path.join(self.out, AUDIO_DIR, re.sub(r"[^A-Za-z0-9_.-]+", "_", sound.name))
+
+    def file(self, sound, loop=False):
         if sound.name in self.done:
             return self.done[sound.name]
         rel = None
@@ -89,11 +101,11 @@ class Converter:
         if wem is None:
             self.report.warn(f"sound {sound.name}: its file is not in the archives")
         else:
-            base = os.path.join(self.out, AUDIO_DIR, re.sub(r"[^A-Za-z0-9_.-]+", "_", sound.name))
+            base = self.base(sound)
             os.makedirs(os.path.dirname(base), exist_ok=True)
             try:
                 existing = next((base + ext for ext in (".ogg", ".wav") if os.path.exists(base + ext)), None)
-                path = existing or self.decoder.convert(wem, base)
+                path = existing or self.decoder.convert(wem, base, loop)
                 rel = os.path.relpath(path, self.out).replace(os.sep, "/")
             except Exception as e:
                 if self.failed == 0:
@@ -102,19 +114,45 @@ class Converter:
         self.done[sound.name] = rel
         return rel
 
-    def files(self, sounds, limit=4):
-        """The mod files of the first `limit` distinct sounds, by name."""
+    def files(self, sounds, limit=4, loop=False):
+        """The mod files of the first `limit` distinct sounds, by name. `loop`: the game plays them round and round."""
         seen, out = set(), []
         for s in sorted(sounds, key=lambda x: x.name):
             if s.name in seen:
                 continue
             seen.add(s.name)
-            f = self.file(s)
+            f = self.file(s, loop)
             if f:
                 out.append(f)
             if len(out) >= limit:
                 break
         return out
+
+
+class Plan(Converter):
+    """Takes the same picks as a Converter and writes nothing: what `decode` then converts side by side."""
+
+    def __init__(self, bank, decoder, out, report):
+        super().__init__(bank, decoder, out, report)
+        self.wems = {}
+
+    def file(self, sound, loop=False):
+        if sound.name not in self.done:
+            wem = self.bank.wem(sound)
+            self.done[sound.name] = sound.name if wem is not None else None
+            if wem is not None:
+                self.wems[sound.name] = (self.base(sound), wem, loop)
+        return self.done[sound.name]
+
+    def decode(self, workers):
+        """The picked sounds into the mod; what fails here stays unwritten, for the Converter's own try to report."""
+        def one(job):
+            base, wem, loop = job
+            if not any(os.path.exists(base + ext) for ext in (".ogg", ".wav")):
+                self.decoder.convert(wem, base, loop)
+        with futures.ThreadPoolExecutor(workers) as pool:   # (each waits on the decoder's own processes)
+            for task in [pool.submit(one, job) for job in self.wems.values()]:
+                task.exception()
 
 
 def pick(bank, spec):
@@ -135,34 +173,54 @@ def voice_of(ship):
     return CAPITAL_VOICE if "kit" not in ship else None
 
 
+def rms_of(path):
+    """A sound file's RMS level through ffmpeg, None when it can't be read."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg or not os.path.exists(path):
+        return None
+    run = subprocess.run([ffmpeg, "-v", "error", "-i", path, "-f", "s16le", "-ac", "1", "-"], capture_output=True)
+    if run.returncode or not run.stdout:
+        return None
+    x = np.frombuffer(run.stdout[: len(run.stdout) // 2 * 2], dtype="<i2").astype(np.float64) / 32768.0
+    return float(np.sqrt(np.mean(x * x)))
+
+
+def engine_volume(rms):
+    """[standstill, top speed] for an engine loop of that level (the remake's own default without one)."""
+    if not rms:
+        return [0.15, 0.27]
+    top = min(ENGINE_LEVEL / rms, ENGINE_MAX_VOLUME)
+    return [round(top * ENGINE_IDLE, 3), round(top, 3)]
+
+
 def ship_sounds(bank, conv, voice):
     """The remake's `sounds` block for a voice, or None."""
     v = VOICES.get(voice)
     if not v:
         return None
     out = {}
-    engine = conv.files(pick(bank, v["engine"]), 1)
+    engine = conv.files(pick(bank, v["engine"]), 1, loop=True)
     if engine:
-        out["engine"] = {"file": engine[0], "volume": [0.15, 0.27], "pitch": [0.9, 1.1]}
+        out["engine"] = {"file": engine[0], "volume": engine_volume(rms_of(os.path.join(conv.out, engine[0]))), "pitch": [0.9, 1.1]}
     b = BOOSTS.get(v.get("boost"))
     if b:
         start = conv.files(pick(bank, b["start"]), 4)
         if start:
             out["boostStart"] = {"files": start, "volume": 0.4, "pitch": [0.95, 1.05]}
-        loop = conv.files(pick(bank, b["loop"]), 1)
+        loop = conv.files(pick(bank, b["loop"]), 1, loop=True)
         if loop:
             out["boostLoop"] = {"file": loop[0], "volume": [0.5, 1.0], "pitch": [1.0, 1.3]}
         stop = conv.files(pick(bank, b["stop"]), 4)
         if stop:
             out["boostStop"] = {"files": stop, "volume": 0.25}
         if "charger" in b:
-            charger = conv.files(pick(bank, b["charger"]), 1)
+            charger = conv.files(pick(bank, b["charger"]), 1, loop=True)
             if charger:
                 out["charger"] = {"file": charger[0], "volume": [0.1, 0.5], "pitch": [0.7, 1.4]}
     return out or None
 
 
-def apply(banks, out, report, ships, items, decoder=None, bank=None):
+def apply(banks, out, report, ships, items, decoder=None, bank=None, jobs=1):
     """Gives the ships their engine and boost sounds and the weapons their shots. Returns how many sound files the mod
     got, or -1 when no decoder is there (nothing is changed then)."""
     from nms import audio
@@ -175,7 +233,17 @@ def apply(banks, out, report, ships, items, decoder=None, bank=None):
         report.warn("no WEM decoder on the PATH (vgmstream-cli, or ww2ogg): the mod is built without the game's sounds. "
                     "Arch: yay -S vgmstream-cli-bin; then build again")
         return -1
+    if jobs > 1:   # (the picks on copies: the real pass below finds their files made)
+        plan = Plan(bank, decoder, out, report)
+        assign(bank, plan, copy.deepcopy(ships), copy.deepcopy(items))
+        plan.decode(jobs)
     conv = Converter(bank, decoder, out, report)
+    assign(bank, conv, ships, items)
+    return len([f for f in conv.done.values() if f])
+
+
+def assign(bank, conv, ships, items):
+    """Gives 'ships' and 'items' their sounds through 'conv'."""
     per_voice = {}
     for ship in ships:
         voice = voice_of(ship)
@@ -189,7 +257,7 @@ def apply(banks, out, report, ships, items, decoder=None, bank=None):
         spec = WEAPON_SOUNDS.get(item["id"])
         if not spec:
             continue
-        shot = conv.files(pick(bank, spec["shot"]), 4)
+        shot = conv.files(pick(bank, spec["shot"]), 4, loop=bool(spec.get("loops")))
         fx = {}
         if shot:
             fx["shot"] = shot if len(shot) > 1 else shot[0]
@@ -200,4 +268,3 @@ def apply(banks, out, report, ships, items, decoder=None, bank=None):
                 fx["explosionSound"] = blast if len(blast) > 1 else blast[0]
         if fx:
             item.setdefault("fx", {}).update(fx)
-    return len([f for f in conv.done.values() if f])

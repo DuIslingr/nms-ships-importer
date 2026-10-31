@@ -197,6 +197,16 @@ take-off and landing in a loop instead; `rest` leaves everything as modelled, th
 the pilot getting in and out and the thrusters' throttle flaps (control animations) are not exported.
 `--no-animations` builds everything static.
 
+Things the build measures rather than guesses, each from a problem seen in the game:
+
+- **Jets** are seated in their nozzles: the game's meshes sit just behind the hull and rely on the engine effect around
+  them, so each engine's rear edge and radius are measured and the jets moved inside it (`nozzle_fits`). All of a ship's
+  engines take the Engines colour slot, and the flicker noise keeps a high floor so the flames burn steadily.
+- **Loops** (engines, boosts, chargers, beams) keep the game's loop points, which the conversion would otherwise drop; a
+  sound without points, or with points that only span the file, has its ends crossfaded (`nms/audio.py`, `closed_loop`).
+- **Engine volumes** are set per clip to one level in the mix (`sounds.engine_volume`): the clips differ by 2.5 times.
+- `--jobs N` sets the workers for the textures and sounds (default: every core; a full PC build takes about 80 s).
+
 ## How it reads the game
 
 `nms/` is a small, dependency-free reader of No Man's Sky's files, usable on its own (`research/formats.md` has the

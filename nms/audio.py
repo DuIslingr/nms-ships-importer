@@ -17,6 +17,9 @@ import shutil
 import struct
 import subprocess
 import tempfile
+import wave
+
+import numpy as np
 
 PERSISTENT = "audio/windows/nms_audio_persistent"   # the iOS game has it under audio/ios/
 MEDIA = "audio/windows/media/"
@@ -111,6 +114,47 @@ def read_embedded(data):
     return {sid: data[base + off: base + off + ln] for sid, off, ln in index}
 
 
+# The crossfade closing a loop the file has no points for (Wwise crossfades those itself), in seconds
+LOOP_CROSSFADE = 0.05
+LOOP_SEAM = 0.25   # how far a loop's ends may lie apart, of its loudness, before they are crossfaded
+
+
+def loop_points(info):
+    """(start, end) in samples from `vgmstream-cli -m`'s report, (None, None) for a sound without them."""
+    start = re.search(r"loop start:\s*(\d+)", info)
+    end = re.search(r"loop end:\s*(\d+)", info)
+    return (int(start.group(1)), int(end.group(1))) if start and end else (None, None)
+
+
+def closed_loop(x, rate, start=None, end=None):
+    """Samples (frames, channels) that loop as a whole. With the game's own points, exactly that region (the start-up before
+    it and the tail after it replayed on every pass otherwise); without them the tail crossfaded into the head, at equal
+    power, so the ends meet."""
+    if start is not None and end is not None and 0 <= start < end <= len(x):
+        x = x[start:end]
+        rms = float(np.sqrt(np.mean(x.astype(np.float64) ** 2))) + 1e-9
+        if float(np.abs(x[-1].astype(np.float64) - x[0]).max()) / rms < LOOP_SEAM:
+            return x   # (some points only span the file: those still want the crossfade)
+    n = min(int(rate * LOOP_CROSSFADE), len(x) // 4)
+    if n < 2:
+        return x
+    t = np.linspace(0.0, 1.0, n)[:, None]
+    out = x[:-n].astype(np.float64)
+    out[:n] = x[:n] * np.sqrt(t) + x[-n:] * np.sqrt(1.0 - t)
+    return out.astype(x.dtype)
+
+
+def make_loop(path, start=None, end=None):
+    """The 16-bit WAV at `path` closed into a loop (closed_loop)."""
+    with wave.open(path) as f:
+        params = f.getparams()
+        x = np.frombuffer(f.readframes(params.nframes), dtype="<i2").reshape(-1, params.nchannels)
+    y = closed_loop(x, params.framerate, start, end)
+    with wave.open(path, "wb") as f:
+        f.setparams(params)
+        f.writeframes(y.astype("<i2").tobytes())
+
+
 class MissingDecoder(Exception):
     pass
 
@@ -143,8 +187,8 @@ class Decoder:
             return "ww2ogg" + (" + revorb" if self.revorb else "")
         return "none"
 
-    def convert(self, wem, dst_base):
-        """Writes `dst_base`.ogg (or .wav); returns the path written."""
+    def convert(self, wem, dst_base, loop=False):
+        """Writes `dst_base`.ogg (or .wav); returns the path written. `loop`: the file is made to loop as it is (make_loop)."""
         if not self.available:
             raise MissingDecoder("no WEM decoder: install vgmstream-cli (AUR: vgmstream-cli-bin) or ww2ogg and put it on the PATH")
         os.makedirs(os.path.dirname(dst_base) or ".", exist_ok=True)
@@ -155,6 +199,9 @@ class Decoder:
             if self.vgmstream:
                 wav = os.path.join(tmp, "out.wav")
                 subprocess.run([self.vgmstream, "-i", "-o", wav, src], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if loop:
+                    info = subprocess.run([self.vgmstream, "-m", src], capture_output=True, text=True).stdout
+                    make_loop(wav, *loop_points(info))
                 if self.ffmpeg:
                     dst = dst_base + ".ogg"
                     subprocess.run([self.ffmpeg, "-y", "-loglevel", "error", "-i", wav, "-c:a", "libvorbis", "-q:a", "5", dst], check=True)

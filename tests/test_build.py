@@ -147,6 +147,90 @@ def ship_of(ships, kit_id):
 
 
 @unittest.skipUnless(HAVE_ZSTD, "no zstd")
+class LoopTests(unittest.TestCase):
+    def test_the_games_loop_points_are_the_file(self):
+        from nms import audio
+        x = (np.stack([np.sin(np.arange(1000) * 2 * np.pi / 100)] * 2, axis=1) * 20000).astype(np.int16)
+        self.assertEqual(audio.closed_loop(x, 48000, 100, 400).tolist(), x[100:400].tolist())
+
+    def test_points_that_only_span_the_file_still_get_their_ends_met(self):
+        from nms import audio
+        t = np.arange(48000)
+        x = (np.stack([np.sin(t * 0.03)] * 2, axis=1) * 9000 + np.linspace(-9000, 9000, 48000)[:, None]).astype(np.int16)
+        self.assertLess(len(audio.closed_loop(x, 48000, 0, 48000)), 48000, "a jump this big is crossfaded")
+
+    def test_a_file_without_points_meets_itself_with_no_jump(self):
+        from nms import audio
+        t = np.arange(48000)
+        x = (np.stack([np.sin(t * 0.03), np.sin(t * 0.03)], axis=1) * 20000 + np.linspace(-9000, 9000, 48000)[:, None]).astype(np.int16)
+        y = audio.closed_loop(x, 48000)
+        self.assertLess(abs(int(y[0, 0]) - int(y[-1, 0])), 800, "the last sample runs on into the first")
+        self.assertEqual(len(y), 48000 - int(48000 * audio.LOOP_CROSSFADE))
+
+    def test_points_past_the_file_fall_back_to_the_crossfade(self):
+        from nms import audio
+        x = np.zeros((48000, 2), np.int16)
+        self.assertEqual(len(audio.closed_loop(x, 48000, 0, 99999)), 48000 - int(48000 * audio.LOOP_CROSSFADE))
+
+    def test_vgmstreams_report_is_read(self):
+        from nms import audio
+        self.assertEqual(audio.loop_points("sample rate: 48000 Hz\nloop start: 29974 samples\nloop end: 690616 samples"), (29974, 690616))
+        self.assertEqual(audio.loop_points("sample rate: 48000 Hz\nstream total samples: 10"), (None, None))
+
+
+class EngineVolumeTests(unittest.TestCase):
+    def test_every_engine_reaches_the_same_level(self):
+        import sounds
+        for rms in (0.139, 0.201, 0.333):
+            self.assertAlmostEqual(rms * sounds.engine_volume(rms)[1], sounds.ENGINE_LEVEL, delta=0.002)
+
+    def test_it_is_quieter_at_a_standstill_and_never_past_full(self):
+        import sounds
+        low, top = sounds.engine_volume(0.2)
+        self.assertLess(low, top)
+        self.assertLessEqual(sounds.engine_volume(0.01)[1], sounds.ENGINE_MAX_VOLUME)
+
+    def test_an_unreadable_file_keeps_the_default(self):
+        import sounds
+        self.assertEqual(sounds.engine_volume(None), [0.15, 0.27])
+
+
+class IdTests(unittest.TestCase):
+    def test_a_long_id_stays_within_the_remakes_limit_and_unique(self):
+        kit = "shuttle_double_cylinderdouble"
+        one = build.ident(kit, "wings0_dstart5_wingsleft3_dcylind3")
+        two = build.ident(kit, "wings0_dstart5_wingsleft3_dcylind4")
+        self.assertLessEqual(len(one), build.MAX_ID)
+        self.assertRegex(one, r"^[a-z0-9_-]+$")
+        self.assertNotEqual(one, two)
+        self.assertEqual(one, build.ident(kit, "wings0_dstart5_wingsleft3_dcylind3"))
+
+    def test_a_part_reached_twice_is_built_once(self):
+        one, again, other = build.Part("a", "skirt", "A", None, set()), build.Part("a", "skirt", "A", None, set()), build.Part("b", "skirt", "B", None, set())
+        self.assertEqual(build.unique_parts([one, again, other]), [one, other])
+
+    def test_the_flame_noise_never_flashes(self):
+        a = np.asarray(build.flame_noise_image(None).convert("L")) / 255.0
+        self.assertGreaterEqual(a.min(), build.STEADY_FLAME - 0.01, "a low value squared would dim the whole flame for a moment")
+
+    def test_a_jet_is_seated_in_its_nozzle(self):
+        ring = np.array([[np.cos(a) * 0.4, np.sin(a) * 0.4, -2.5] for a in np.linspace(0, 6.28, 32)])
+        jet = np.array([[np.cos(a) * 0.1, np.sin(a) * 0.1, z] for a in np.linspace(0, 6.28, 16) for z in (-2.7, -3.3)])
+        fit = build.nozzle_fits(ring, [("jet", jet)])["jet"]
+        moved = (jet @ fit[:3, :3].T) + fit[:3, 3]
+        self.assertAlmostEqual(float(moved[:, 2].max()), -2.5 + build.JET_INSIDE, places=4)
+        self.assertAlmostEqual(float(np.hypot(moved[:, 0], moved[:, 1]).max()), 0.1 * min(4.0 * build.JET_FILL, build.JET_MAX_WIDEN), delta=0.01)
+
+    def test_a_jet_already_inside_stays_and_a_lone_jet_is_left(self):
+        ring = np.array([[np.cos(a) * 0.1, np.sin(a) * 0.1, -3.0] for a in np.linspace(0, 6.28, 32)])
+        jet = np.array([[np.cos(a) * 0.1, np.sin(a) * 0.1, z] for a in np.linspace(0, 6.28, 16) for z in (-2.7, -3.3)])
+        self.assertEqual(build.nozzle_fits(ring, [("jet", jet)])["jet"][2, 3], 0.0)
+        self.assertEqual(build.nozzle_fits(np.zeros((0, 3)), [("jet", jet)]), {})
+
+    def test_a_short_id_is_as_it_was(self):
+        self.assertEqual(build.ident("Fighter", "Engine B"), "fighter-engine_b")
+
+
 class BuildTests(unittest.TestCase):
     def test_fighter_kit(self):
         with tempfile.TemporaryDirectory() as d:
@@ -172,7 +256,9 @@ class BuildTests(unittest.TestCase):
             exhausts = [m for m in by_id["fighter-engine_a"]["mounts"] if m["slotType"] == 3]
             self.assertEqual(len(exhausts), 2)
             self.assertEqual(exhausts[0]["position_engine"], [40.0, 80.0, -184.0])   # the trail 0.3 behind the turned-around thruster
-            self.assertEqual(exhausts[0]["glowColor"], [0.6, 0.1, 1.0])
+            self.assertNotIn("glowColor", exhausts[0], "one colour for the ship: the Engines slot")
+            r = exhausts[0]["glowSize"][0]
+            self.assertEqual(exhausts[0]["glowSize"], [r, r, round(r * 2.5)])
             self.assertEqual(exhausts[0]["socketScale"], 1.5)   # the trail locator's scale 0.75 x the kit scale 4 / 2
             boosters = [m for m in by_id["fighter-wings_a"]["mounts"] if m["slotType"] == 5]
             self.assertEqual(len(boosters), 1)   # the wings' contrail
@@ -217,16 +303,16 @@ class BuildTests(unittest.TestCase):
             self.assertEqual(set(read(prim["attributes"]["TEXCOORD_1"], "<f4", 2)[:, 1].tolist()), {0.5})
             flame = next(m for m in mats_of(kit) if m["material"].endswith("_flame"))
             self.assertTrue(flame["flame"])
-            self.assertEqual(flame["emissionColor"], [0.6, 0.1, 1.0])
+            self.assertEqual(flame["emissionColor"], list(build.ENGINE_COLOUR))
             self.assertEqual(flame["flameNoise"], "maps/engine_jet_noise.png")
             self.assertTrue(os.path.exists(os.path.join(out, flame["flameNoise"])))
             glow = next(m for m in mats_of(kit) if m["material"].endswith("_engineglow"))
             self.assertTrue(glow["engine"])
             self.assertEqual(glow["engineIdle"], 1)
-            self.assertEqual(glow["emissionColor"], [0.6, 0.1, 1.0])
+            self.assertEqual(glow["emissionColor"], list(build.ENGINE_COLOUR))
             self.assertTrue(os.path.exists(os.path.join(out, glow["emission"])))
             self.assertFalse(any(m["name"].endswith("_lights") for m in doc["materials"]))
-            self.assertEqual(ship_of(ships, "fighter")["engineGlowColor"], [0.6, 0.1, 1.0])
+            self.assertEqual(ship_of(ships, "fighter")["engineGlowColor"], list(build.ENGINE_COLOUR))
             self.assertEqual([a["name"] for a in doc["animations"]], ["flight"])
             chan = doc["animations"][0]["channels"][0]
             self.assertEqual(chan["target"]["path"], "rotation")
@@ -258,6 +344,7 @@ class BuildTests(unittest.TestCase):
             # the ship
             self.assertEqual(len(ships), 1)
             ship = ships[0]
+            self.assertEqual(ship["engineGlowColor"], list(build.ENGINE_COLOUR))
             self.assertEqual(ship["kit"], "fighter")
             self.assertEqual(ship["build"]["cockpit"], "fighter-cockpit_a")
             self.assertEqual(ship["build"]["wings"], "fighter-wings_a")
@@ -361,7 +448,7 @@ class CapitalShipTests(unittest.TestCase):
             self.assertAlmostEqual(up[1], -1.0, places=3)   # the turned-over origin hangs under the hull
             self.assertEqual([m["position_engine"] for m in turrets if m["position_engine"][1] > 0], [[100.0, 200.0, 50.0]])   # 10 m x 0.5 x 20
             exhausts = [m for m in ship["mounts"] if m["slotType"] == 3]
-            self.assertEqual(exhausts, [{"slotType": 3, "position_engine": [0.0, 0.0, -200.0], "socketScale": 0.5}])   # the trail's scale 2 x 0.5 / 2
+            self.assertEqual(exhausts, [{"slotType": 3, "position_engine": [0.0, 0.0, -200.0], "glowSize": [7, 7, 18], "socketScale": 0.5}])   # the trail's scale 2 x 0.5 / 2
             hangar = ship["subsystems"][0]
             self.assertEqual(hangar["kind"], "hangar")
             self.assertEqual(hangar["ships"], ["nms_ships:fighter"])

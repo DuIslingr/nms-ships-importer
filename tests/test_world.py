@@ -290,7 +290,7 @@ def make_bnk(embedded):
 class FakeDecoder:
     available = True
 
-    def convert(self, wem, base):
+    def convert(self, wem, base, loop=False):
         with open(base + ".ogg", "wb") as f:
             f.write(b"OggS" + wem)
         return base + ".ogg"

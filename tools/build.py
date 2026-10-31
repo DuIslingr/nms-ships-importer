@@ -11,6 +11,8 @@ mod by their texture set, NMS's primary / secondary / tertiary paint materials e
 come from the parts' gun references, exhausts from their thruster trails; each kit is one ship in ships.json with its
 default build.
 """
+from concurrent import futures
+import hashlib
 import json
 import math
 import os
@@ -315,7 +317,7 @@ class Materials:
                     maps["normal"] = s["map"]
             colour = tuple(round(float(x), 3) for x in uniform(mat, "gMaterialColourVec4"))
             if role in ("flame", "engineglow"):
-                colour = tuple(engine_colour or (0.62, 0.16, 1.0))
+                colour = ENGINE_COLOUR   # one for the whole ship: the Engines colour slot, whatever each part's light was
             key = (tuple(sorted((k, scene.game_path(v)) for k, v in maps.items())), cls, colour, role)
         if key in self.names:
             return self.names[key], cls
@@ -326,13 +328,13 @@ class Materials:
         if role == "flame":
             # the jet cones: the remake's engine flames (lit by thrust, the boost cards while boosting), in the engine's colour
             self.flame_noise()
-            entry.update({"flame": True, "flameLength": 0.5, "emissionColor": [round(float(x), 3) for x in colour[:3]], "emissionIntensity": 2.5,
+            entry.update({"flame": True, "flameLength": FLAME_LENGTH, "emissionColor": [round(float(x), 3) for x in colour[:3]], "emissionIntensity": FLAME_GLOW,
                           "boostColor": [round(0.5 + 0.5 * float(x), 3) for x in colour[:3]], "flameNoise": FLAME_NOISE})
             self.entries[key] = entry
             return name, cls
         if role == "engineglow":
             # the glow discs at the nozzles: lit with the engines, steady while they run
-            entry.update({"engine": True, "engineIdle": 1, "emissionColor": [round(float(x), 3) for x in colour[:3]], "emissionIntensity": 2})
+            entry.update({"engine": True, "engineIdle": 1, "emissionColor": [round(float(x), 3) for x in colour[:3]], "emissionIntensity": NOZZLE_GLOW})
             if "diffuse" in maps:
                 rel = self.texture(maps["diffuse"], "g")
                 if rel:
@@ -381,31 +383,14 @@ class Materials:
         self.textures["_noise"] = (FLAME_NOISE, "noise")
 
     def convert(self, out, max_size=MAX_TEXTURE):
+        """Writes the textures. The archives are read here, in order (they share a file position), and the decoding and PNG
+        encoding, nearly all of the time, run in worker processes; the files are the same whatever the number of workers."""
         done, failed = 0, 0
-        for p, (rel, kind) in self.textures.items():
-            if rel is None:
-                continue
-            dst = os.path.join(out, rel)
-            if os.path.exists(dst):
-                continue
+
+        def finished(p, future):
+            nonlocal done, failed
             try:
-                if kind == "noise":
-                    textures.save_png(flame_noise_image(self.banks), dst)
-                    done += 1
-                    continue
-                im = textures.decode(self.banks.read(p))
-                if kind == "g":
-                    im = im.convert("RGBA")
-                    rgb = np.asarray(im).astype(np.float32)
-                    lum = (rgb[..., :3].max(axis=2) * rgb[..., 3] / 255.0).astype(np.uint8)   # the disc's shape as grey
-                    im = Image.merge("RGB", [Image.fromarray(lum)] * 3)
-                elif kind == "n":
-                    im = textures.normal_map(im)
-                elif kind == "ms":
-                    im = textures.masks_to_metallic_smoothness(im)
-                else:
-                    im = im.convert("RGBA") if "A" in im.getbands() else im.convert("RGB")
-                textures.save_png(im, dst, max_size)
+                future.result()
                 done += 1
             except textures.MissingASTC as e:
                 if failed == 0:
@@ -414,7 +399,75 @@ class Materials:
             except Exception as e:
                 self.report.warn(f"{p}: {e}")
                 failed += 1
+
+        workers = jobs()
+        pool = futures.ProcessPoolExecutor(workers) if workers > 1 else None
+        running, queued = {}, set()
+        try:
+            for p, (rel, kind) in self.textures.items():
+                if rel is None:
+                    continue
+                dst = os.path.join(out, rel)
+                if rel in queued or os.path.exists(dst):   # (a stand-in shares its original's file, still being written)
+                    continue
+                queued.add(rel)
+                if kind == "noise":
+                    task = futures.Future()
+                    try:
+                        textures.save_png(flame_noise_image(self.banks), dst)
+                        task.set_result(None)
+                    except Exception as e:
+                        task.set_exception(e)
+                    finished(p, task)
+                    continue
+                try:
+                    data = self.banks.read(p)
+                except Exception as e:
+                    task = futures.Future()
+                    task.set_exception(e)
+                    finished(p, task)
+                    continue
+                if pool is None:
+                    task = futures.Future()
+                    try:
+                        task.set_result(convert_texture(data, kind, dst, max_size))
+                    except Exception as e:
+                        task.set_exception(e)
+                    finished(p, task)
+                    continue
+                running[pool.submit(convert_texture, data, kind, dst, max_size)] = p
+                if len(running) >= workers * 2:   # (the read bytes wait in memory: keep only a few ahead of the workers)
+                    ready, _ = futures.wait(running, return_when=futures.FIRST_COMPLETED)
+                    for task in ready:
+                        finished(running.pop(task), task)
+            for task in futures.as_completed(list(running)):
+                finished(running.pop(task), task)
+        finally:
+            if pool is not None:
+                pool.shutdown()
         return done, failed
+
+
+def jobs():
+    """The workers for the textures and sounds: JOBS (--jobs), else every core."""
+    return max(1, JOBS or os.cpu_count() or 1)
+
+
+def convert_texture(data, kind, dst, max_size):
+    """One texture file into the mod, in a worker process."""
+    im = textures.decode(data)
+    if kind == "g":
+        im = im.convert("RGBA")
+        rgb = np.asarray(im).astype(np.float32)
+        lum = (rgb[..., :3].max(axis=2) * rgb[..., 3] / 255.0).astype(np.uint8)   # the disc's shape as grey
+        im = Image.merge("RGB", [Image.fromarray(lum)] * 3)
+    elif kind == "n":
+        im = textures.normal_map(im)
+    elif kind == "ms":
+        im = textures.masks_to_metallic_smoothness(im)
+    else:
+        im = im.convert("RGBA") if "A" in im.getbands() else im.convert("RGB")
+    textures.save_png(im, dst, max_size)
 
 
 JET_TEXTURE = "textures/effects/ship/engine_jet.dds"
@@ -431,20 +484,92 @@ def flame_noise_image(banks, size=256):
             w = a.shape[1]
             band = a[:, w // 4: w // 2, 0]   # the red channel, across the jet, where the streaks are
             band = (band - band.min()) / max(band.max() - band.min(), 1e-6)
+            band = STEADY_FLAME + (1.0 - STEADY_FLAME) * band
             tile = np.concatenate([band, band[:, ::-1]], axis=1)
             tile = np.concatenate([tile, tile[::-1, :]], axis=0)
             img = Image.fromarray((tile * 255).astype(np.uint8), "L").resize((size, size), Image.BILINEAR)
             return img.convert("RGB")
         except Exception:
             pass
-    noise = (rng.random((size, size)) * 255).astype(np.uint8)
+    noise = ((STEADY_FLAME + (1.0 - STEADY_FLAME) * rng.random((size, size))) * 255).astype(np.uint8)
     return Image.fromarray(noise, "L").convert("RGB")
 
 
 # --- parts ----------------------------------------------------------------------------------------------------------
 
+JOBS = None   # the workers for the textures and sounds (--jobs); None = every core
+ENGINE_COLOUR = (0.624, 0.157, 1.0)   # the "engines" colour slot's default (violet), so a new ship has one colour
+FLAME_LENGTH = 5.0   # the jet cones' reach in the model's units (the remake's default, EVERSPACE 2's 500 cm): 0.5 left only orbs
+FLAME_GLOW, NOZZLE_GLOW = 0.4, 0.9   # HDR strengths: a jet is several additive cards, and more than this blooms into a haze
+STEADY_FLAME = 0.93   # the flicker noise's floor: the remake squares it over time, so a full range flashes the whole flame
+GLOW_RADIUS = 14     # the glow disc at an exhaust, game units at socket scale 1: the jets are the engine, not the disc
+# Seating the jets in their nozzles (nozzle_fits), in the model's units
+JET_SAME_AXIS, JET_SEARCH, JET_REAR_BAND, JET_INSIDE, JET_FILL, JET_MAX_WIDEN = 0.25, 0.6, 0.25, 0.06, 0.75, 1.5
+MAX_ID = 40   # the remake's ModManifest.MaxIdLength: a longer part id stops shipkits.json loading at that part
+
+
 def ident(*names):
-    return "-".join(re.sub(r"[^a-z0-9]+", "_", n.lower()).strip("_") for n in names if n)
+    """An id the remake takes: a-z, 0-9, _ and -, at most MAX_ID; a longer one keeps its start and a hash of the whole."""
+    text = "-".join(re.sub(r"[^a-z0-9]+", "_", n.lower()).strip("_") for n in names if n)
+    if len(text) <= MAX_ID: return text
+    return f"{text[:MAX_ID - 7].rstrip('-_')}-{hashlib.sha1(text.encode()).hexdigest()[:6]}"
+
+
+def nozzle_fits(hull, jets):
+    """Seats the jets in their nozzles. The game's jet meshes are thin and sit behind the hull's last vertices: a jet floated
+    apart from its engine, in a nozzle many times as wide. 'hull': the part's other vertices (n, 3); 'jets': [(key, vertices)]
+    in the same space, the jet pointing along -Z. Jets on one axis are one engine; each gets a 4x4 that moves its base just
+    inside the nozzle's rear edge and widens it about the axis to the nozzle. Returns {key: matrix} (none near a hull: left)."""
+    engines = []
+    for key, pts in jets:
+        centre = pts[:, :2].mean(axis=0)
+        for e in engines:
+            if np.hypot(*(e["centre"] - centre)) < JET_SAME_AXIS:
+                e["jets"].append((key, pts))
+                break
+        else:
+            engines.append({"centre": centre, "jets": [(key, pts)]})
+    fits = {}
+    if not len(hull):
+        return fits
+    for e in engines:
+        centre = e["centre"]
+        pts = np.concatenate([p for _, p in e["jets"]])
+        radius = float(np.hypot(*(pts[:, :2] - centre).T).max())
+        reach = np.hypot(*(hull[:, :2] - centre).T)
+        near = hull[reach < max(radius * 6.0, JET_SEARCH)]
+        if not len(near):
+            continue
+        rear = float(near[:, 2].min())
+        band = near[near[:, 2] < rear + JET_REAR_BAND]
+        nozzle = float(np.percentile(np.hypot(*(band[:, :2] - centre).T), 75))
+        widen = min(max(nozzle * JET_FILL / max(radius, 1e-6), 1.0), JET_MAX_WIDEN)
+        shift = max(rear + JET_INSIDE - float(pts[:, 2].max()), 0.0)
+        m = np.identity(4)
+        m[0, 0] = m[1, 1] = widen
+        m[0, 3], m[1, 3] = centre * (1.0 - widen)
+        m[2, 3] = shift
+        for key, _ in e["jets"]:
+            fits[key] = m
+    return fits
+
+
+def seat_only(fit):
+    """A fit without its widening: a glow disc moves with its jet but keeps its size (additive: its area is its brightness)."""
+    m = np.identity(4)
+    m[2, 3] = fit[2, 3]
+    return m
+
+
+def unique_parts(parts):
+    """Each id once, the first: an option reached twice (the sentinel's plain skirts) would build the same model file again,
+    and the remake stops reading shipkits.json at a part id used twice in a kit."""
+    seen, out = set(), []
+    for p in parts:
+        if p.id not in seen:
+            seen.add(p.id)
+            out.append(p)
+    return out
 
 
 def pretty(name):
@@ -516,8 +641,9 @@ def locator_mounts(asm, scale, overrides=None):
             return
         seen.add(pos)
         m = {"slotType": slot_type, "position_engine": list(pos)}
-        if slot_type == 3 and light:
-            m["glowColor"] = light
+        if slot_type == 3:
+            r = round(GLOW_RADIUS * socket_scale(p, scale))
+            m["glowSize"] = [r, r, round(r * 2.5)]
         if extra:
             m.update(extra)
         mounts.append(m)
@@ -700,7 +826,7 @@ class KitBuilder:
                 parts = kept
             log(f"  {kit_id}: slots {slots}, {len(parts)} parts to build")
             built = []
-            for p in parts:
+            for p in unique_parts(parts):
                 try:
                     if self.build_part(scene_path, d, p, spec["scale"]):
                         built.append(p)
@@ -848,7 +974,27 @@ class KitBuilder:
         if part.frame is not None:   # a framed model is drawn flat: no node hierarchy, no animations
             animated = set()
         colour = engine_colour(asm)
-        for i, placed in enumerate(scene.finest_meshes(drawn, part.lod_floor, part.drop_detail and part.lod_floor >= 2)):
+        finest = list(scene.finest_meshes(drawn, part.lod_floor, part.drop_detail and part.lod_floor >= 2))
+
+        def placed_world(placed):
+            world = placed.world(overrides) if overrides else placed.matrix
+            return part.frame @ world if part.frame is not None else world
+
+        hull, jets = [], []
+        for placed in finest:
+            role = self.materials.name_for(placed, colour)[0].rsplit("_", 1)[1]
+            mesh = placed.scene.geometry.mesh(placed.node.name)
+            if len(mesh.indices):
+                pts = geometry.apply(placed_world(placed), mesh.positions)
+                if role in ("flame", "engineglow"):
+                    jets.append((placed, pts))
+                else:
+                    hull.append(pts)
+        fits = nozzle_fits(np.concatenate(hull) if hull else np.zeros((0, 3)), jets)
+        for placed in list(fits):
+            if self.materials.name_for(placed, colour)[0].endswith("_engineglow"):
+                fits[placed] = seat_only(fits[placed])
+        for i, placed in enumerate(finest):
             g = placed.scene.geometry
             name, cls = self.materials.name_for(placed, colour)
             role = name.rsplit("_", 1)[1]
@@ -876,16 +1022,19 @@ class KitBuilder:
                 M = overrides.get(placed.node, placed.node.local)
                 t, r, sc = glb.trs(M)
                 idx = m.indices[:, ::-1] if np.linalg.det(placed.world(overrides)[:3, :3]) < 0 else m.indices
-                glb_nodes[placed.node] = w.add_mesh(f"{part.id}_{i:03d}_{placed.node.name}__{name}", m.positions, m.normals, uvs, idx, mat,
-                                                    uvs2=uvs2, parent=parent, translation=t, rotation=r, scale=sc)
                 world = placed.world(overrides)
-                pos = geometry.apply(world, m.positions)
+                local = m.positions
+                if placed in fits:   # (the seat is in the part's space: back through this node's)
+                    local = geometry.apply(np.linalg.inv(world) @ fits[placed] @ world, m.positions)
+                glb_nodes[placed.node] = w.add_mesh(f"{part.id}_{i:03d}_{placed.node.name}__{name}", local, m.normals, uvs, idx, mat,
+                                                    uvs2=uvs2, parent=parent, translation=t, rotation=r, scale=sc)
+                pos = geometry.apply(world, local)
             else:
-                world = placed.world(overrides) if overrides else placed.matrix
-                if part.frame is not None:
-                    world = part.frame @ world
-                pos = geometry.apply(world, m.positions)
+                world = placed_world(placed)
                 nrm = geometry.apply_normals(world, m.normals)
+                if placed in fits:
+                    world = fits[placed] @ world
+                pos = geometry.apply(world, m.positions)
                 idx = m.indices[:, ::-1] if np.linalg.det(world[:3, :3]) < 0 else m.indices
                 w.add_mesh(f"{part.id}_{i:03d}_{placed.node.name}__{name}", pos, nrm, uvs, idx, mat, uvs2=uvs2)
             lo, hi = np.minimum(lo, pos.min(0)), np.maximum(hi, pos.max(0))
@@ -987,8 +1136,7 @@ class KitBuilder:
                  "traffic": {"capital": spec["kind"], "weight": 1, "races": races},
                  "hullFactor": spec["hull"], "engineStyle": "es2", "explosionScale": 3 if spec["kind"] == "battleship" else 2,
                  "materials": self.materials.ship_entries(part.material_names)}
-        if part.engine_colour:
-            entry["engineGlowColor"] = part.engine_colour
+        entry["engineGlowColor"] = list(ENGINE_COLOUR)
         if subsystems:
             entry["subsystems"] = subsystems
         return entry
@@ -1144,7 +1292,7 @@ def ship_entry(kit, name, spec, parts):
              "armor": spec["armor"], "cargo": spec["cargo"], "handling": spec["handling"], "price": spec["price"],
              "slots": {"primary": max(2, min(primaries, 6)), "secondary": max(2, min(secondaries, 4)), "turret": 0, "equipment": spec["equipment"]},
              "kit": kit["id"], "kitType": kit["id"], "build": build,
-             "engineGlowColor": next((p.engine_colour for p in chosen if p.engine_colour), [0.62, 0.16, 1.0]),
+             "engineGlowColor": list(ENGINE_COLOUR),
              "dealer": {"chance": 3 if "proc" in spec else 1, "systemRace": -1, "minTechLevel": 3 if "proc" in spec else 6},
              "lounge": {"systemRace": -1, "minCampaign": 8, "minRank": 4, "chance": 10 if "proc" in spec else 4}}
     if spec.get("race") is not None:
@@ -1220,7 +1368,7 @@ def build(banks, out, classes=None, report=None, limit_parts=None, max_texture=M
     if SOUNDS and (ships or items):
         import sounds as sounds_mod
         log("Sounds...")
-        n = sounds_mod.apply(banks, out, report, ships, items)
+        n = sounds_mod.apply(banks, out, report, ships, items, jobs=jobs())
         if n >= 0:
             log(f"  {n} sound files ({time.time() - t0:.0f} s)")
     log("Textures...")
