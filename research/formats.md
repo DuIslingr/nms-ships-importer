@@ -176,6 +176,48 @@ The jet texture `TEXTURES/EFFECTS/SHIP/ENGINE_JET.DDS` is a streaked gradient al
 discs `TEXTURES/COMMON/SPACECRAFT/SHARED/ENGINEGLOW.*.DDS` soft discs. A fighter's jet cone is about 0.6 m long at full
 thrust (its mesh is scaled 0.24 under Stage2 0.5 under J_Scale 0.5); the long streaks seen in flight are the trails.
 
+## Tables (`METADATA/REALITY/TABLES/*.MBIN`, `LANGUAGE/*.MBIN`)
+
+The reality tables are MBINs like the rest: fixed-offset structures, 16-byte list and string headers (i64 offset
+from the header, i32 count, u32 magic `0xAAAAAA01`). Two are read:
+
+- **The technology table** (`NMS_REALITY_GCTECHNOLOGYTABLE.MBIN`, 393 entries in 7.10): the list header at 0x20,
+  entries of 736 bytes. The ID string (0x10) sits **264 bytes into the entry**; before it, at ID-0x58, the icon
+  path's string header and at ID-0x10 the description text id's; after it the name text id at ID+0xBC (0x40), the
+  subtitle's string header at ID+0x60, the requirements list at ID+0x30 (0x18 each: item id 0x10, i32 amount) and
+  the stat bonuses list at ID+0x50 (12 bytes each: f32 value, i32 level, u32 stat type). The stat types are the
+  game's `GcStatsTypes` enum. The binary's strings hold the enum's names in order, but a name that also occurs
+  elsewhere (`Ship_Weapons_Guns`, `Ship_Weapons_Lasers`, `Ship_Weapons_Missiles`) is stored once and so is missing
+  from the run; the numbering here is fixed from the Photon Cannon's own entry (`SHIPGUN1`): 120 Guns_Damage (320),
+  121 Guns_Rate (7.5), 122 Guns_HeatTime, 123 Guns_CoolTime, 124 Guns_Scale, 125 Guns_BulletsPerShot,
+  126 Guns_Dispersion, 127 Guns_Range (1500), 128 Guns_Damage_Radius, then 129 Lasers (the flag), 130 Lasers_Damage
+  (the Phase Beam's 250), 131 Lasers_HeatTime (2.5), 141 ShieldLeech (0.2). The ship weapons: `SHIPGUN1` Photon
+  Cannon, `SHIPLAS1` Phase Beam, `SHIPSHOTGUN` Positron Ejector (14 bullets, 10 degrees, 500 m), `SHIPMINIGUN`
+  Infra-Knife, `SHIPPLASMA` Cyclotron Ballista (2 bullets), `SHIPROCKETS` Rocket Launcher (6500 damage, 5000 m,
+  10 s cooldown, 15 m radius), `SHIPGUN_ROBO` Sentinel Cannon, `SHIPGUN_ALIEN` / `SHIPLAS_ALIEN` the living ships'.
+- **The language files** (`NMS_LOC1_ENGLISH.MBIN` ... `NMS_UPDATE3_ENGLISH.MBIN`, 85k texts together): the list
+  header at 0x20, entries of 304 bytes: a 0x20 id, then one 16-byte string header per language; the first non-empty
+  is the text. Texts carry markup (`<TECHNOLOGY>...<>`, `<IMG>SHIPFIRE<>` for a control's glyph).
+
+## Space structures
+
+The stations are built like the ships: `SPACESTATION.SCENE.MBIN` with a descriptor whose one group `_STATION_` picks
+the shape (`_Station_Cub` / `_Ico` / `_Oct` / `_Tet` / `_Sphere`, the pirate and abandoned stations' files the same
+without the Tet); under each shape's node a `Station_<shape>` subtree (the interior: the launch tube, the hall, the
+shops, 2.6 M triangles) and an `Outside_<shape>` subtree (the hull: 60-140 k triangles), the sphere's hull in a
+referenced scene (`MODULARPARTS/EXTERIOR/STATION_SPHERE`: `Entrance1` the interior, `_Outside_Sphere` the hull). The
+docking tunnel's locators are named `TunnelOpening`. The newer type B station's exterior is its own scene
+(`SPACESTATIONTYPEB_EXTERIOR`, groups `_TYPE_`: Tet / Oct / Disk / EX / Tri / Simple, with `_TunnelOpeningREF_`),
+9.5 km across with its `ExtBuildRing`, the base-building limit ring of light. The Anomaly (`ANOMALY/ANOMALY`, 390 m)
+holds its rooms in the same scene as its shell (`Exterior`, `OuterRing`); its `Approach` locator is at +Z. The derelict
+freighters are `POI/HULK/HULKSTRUCTURE01-07` (75-340 m, each a layout of habitat modules, gantries and a core from
+`HULK/PARTS`; `HULK.SCENE` picks among them); an open habitat's interior gore (`_Jar`, `Bones`, `Flesh`, `PortalBlood`)
+has no LODs while the hulls have four. The outpost (`POI/OUTPOST`, 250 m, `MainEntrance` at -Z) and the wreck
+(`POI/SPACEDEBRIS`, a ship's parts strewn among asteroids) likewise. The space portal is `POI/GATE_POI` (1.1 km, the
+ring in the XY plane). The sentinel drones (`COMMON/ROBOTS/DRONE*`, 2-3 m) look along -Z: their eye and guns lie there
+and their engine behind; their scenes carry one eye and engine-effect mesh per state (`PatrolEye`, `AttackEye`,
+`InvestEye`) and a `critmesh` for critical hits.
+
 ## Tools that read these formats
 
 monkeyman192/HGPAKTool (the archive spec), monkeyman192/MBINCompiler (libMBIN, the template layouts; v7.10.0.1 for 7.10),

@@ -39,6 +39,13 @@ ANIMATIONS = True
 PART_STATS = True              # small hull / cargo / handling / speed bonuses from each part's size
 
 SPACECRAFT = "models/common/spacecraft/"
+
+
+def scene_file(name):
+    """The archive path of a scene named relative to the spacecraft folder, or from the archive root ("models/...")."""
+    return (name if name.startswith("models/") else SPACECRAFT + name) + ".scene.mbin"
+
+
 CLASSES = {
     "fighter": dict(proc="fighters/fighter_proc", name="Fighter", scale=4.0, armor=260, cargo=30, handling=160, price=1400000,
                     equipment=9, description="A No Man's Sky fighter: fast, armed, little room for cargo. Customize it in the hangar."),
@@ -84,6 +91,22 @@ CLASSES = {
                           equipment=6, traffic_only=True, description="A No Man's Sky brood fighter of the swarm."),
     "swarm_drone": dict(scene="swarm/swarmdrone", name="Brood Drone", scale=4.0, armor=80, cargo=5, handling=190, price=0, race=9,
                         equipment=4, traffic_only=True, description="A No Man's Sky brood drone."),
+    # the sentinels' drones (the robots folder: a scene path from the archive root), as the Void's small craft; the
+    # sentinel drones look along -Z (their eye and guns lie there, their engine behind): `backward` turns them
+    "sentinel_drone": dict(backward=True, scene="models/common/robots/drone", name="Sentinel Drone", scale=6.0, armor=120, cargo=5, handling=190, price=0, race=9,
+                           equipment=4, traffic_only=True, hostile=True, description="A No Man's Sky sentinel drone: the eye that watches, and shoots."),
+    "armoured_drone": dict(backward=True, scene="models/common/robots/dronearmoured", name="Sentinel Armoured Drone", scale=6.0, armor=260, cargo=5, handling=150, price=0, race=9,
+                           equipment=5, traffic_only=True, hostile=True, description="A No Man's Sky armoured sentinel drone, plated and winged."),
+    "summoner_drone": dict(backward=True, scene="models/common/robots/dronesummoner", name="Sentinel Summoner", scale=6.0, armor=160, cargo=5, handling=170, price=0, race=9,
+                           equipment=4, traffic_only=True, hostile=True, description="A No Man's Sky summoner drone: it calls the swarm."),
+    "corrupted_drone": dict(backward=True, scene="models/common/robots/corrupteddrone", name="Corrupted Sentinel", scale=5.0, armor=200, cargo=5, handling=160, price=0, race=9,
+                            equipment=5, traffic_only=True, hostile=True, description="A No Man's Sky corrupted sentinel drone, grown over with crystal."),
+    "medic_drone": dict(backward=True, scene="models/common/robots/dronemedic", name="Sentinel Repair Drone", scale=6.0, armor=140, cargo=5, handling=170, price=0, race=9,
+                        equipment=4, traffic_only=True, hostile=True, description="A No Man's Sky repair drone of the sentinels, armed all the same."),
+    "cargo_scan_drone": dict(scene="models/common/robots/cargoscandrone", name="Cargo Scan Drone", scale=2.5, armor=180, cargo=5, handling=140, price=0, race=9,
+                             equipment=4, traffic_only=True, hostile=True, description="A No Man's Sky cargo scan drone: the sentinels' customs patrol."),
+    "freighter_drone": dict(scene="models/common/robots/freighterdrone", name="Derelict Drone", scale=3.0, armor=150, cargo=5, handling=150, price=0, race=9,
+                            equipment=4, traffic_only=True, hostile=True, description="A No Man's Sky security drone from a derelict freighter, still on patrol."),
 }
 # The capital ships: traffic freighters and battleships (the remake's capital ships), one model each from the game's
 # freighter scenes (their descriptors' likeliest choices). The five standard frigates are not here: the game assembles
@@ -147,7 +170,7 @@ FIXED_TRAFFIC = ([0, 1, 2, 3], 1)
 SKIP_MATERIAL_CLASSES = {2, 12, 22, 24}   # Additive (engine jets: the remake draws its own flames), Decal, GunAdditive, GunGlow
 EMISSIVE_CLASSES = {18, 19}               # Glow, GlowTranslucent
 TRANSLUCENT_CLASSES = {62, 63, 15}        # Translucent, TranslucentPostScene, DoubleSided
-SKIP_NODES = re.compile(r"(landinggear|landing_gear|frontpad|leftpad|rightpad|backpad|_gear\b|shadowmesh|shielddata|fxsphere|vfxref|engineglowpoly|gravitycube|gravityvolume|gravcapsule|hoverpad|biggsplatform|landingzone)", re.I)   # and the corvette docking pads the frigates carry   # gear and pads; the capital ships' shield spheres, engine effect planes and gravity volumes
+SKIP_NODES = re.compile(r"(landinggear|landing_gear|frontpad|leftpad|rightpad|backpad|_gear\b|shadowmesh|shielddata|fxsphere|vfxref|engineglowpoly|gravitycube|gravityvolume|gravcapsule|hoverpad|biggsplatform|landingzone|critmesh|patroleye|investeye|engineeffectpatrol|engineeffectinvest)", re.I)   # and the drones' critical-hit mesh and their patrol / investigate eyes (the attack ones stay)   # and the corvette docking pads the frigates carry   # gear and pads; the capital ships' shield spheres, engine effect planes and gravity volumes
 WEAPON_SCENES = re.compile(r"/shared/weapons/", re.I)   # the ship gun (one model for every class), a fixed part of the hull
 
 
@@ -173,6 +196,7 @@ def log(msg):
 
 
 class Report:
+    extras = {}
     def __init__(self):
         self.warnings = []
         self.notes = []
@@ -434,6 +458,15 @@ class Part:
         self.lod_floor = 0
         self.material_names = []
         self.extra_scenes = []   # more scenes assembled into the same model (a frigate's base scene with its trails)
+        self.keep = None         # a regex a mesh's path must match to be drawn (a station's exterior)
+        self.skip = None         # a regex of more paths left out
+        self.frame = None        # a 4x4 applied to everything (a station turned to face its docking tunnel along +Z)
+        self.drop_detail = False   # at LOD floor 2 and up, leave out the mesh families that have no LODs (interior props)
+
+    def allows(self, path):
+        if self.keep is not None and not self.keep.search(path):
+            return False
+        return not (self.skip is not None and self.skip.search(path))
 
 
 def engine_colour(asm):
@@ -529,7 +562,7 @@ class KitBuilder:
     def plan(self, class_id, spec):
         """[(kit id, kit name, slots, [Part], scene path, descriptor)] for a class, or None when its files are missing."""
         if "scene" in spec:   # a fixed design: the whole scene (its own descriptor's likeliest choices) as one hull part
-            scene_path = SPACECRAFT + spec["scene"] + ".scene.mbin"
+            scene_path = scene_file(spec["scene"])
             if not self.banks.exists(scene_path):
                 self.report.warn(f"{class_id}: {scene_path} is not in the archives; skipped")
                 return None
@@ -663,7 +696,7 @@ class KitBuilder:
                         self.report.note(f"{p.id}: no meshes (left out)")
                 except Exception as e:
                     self.report.warn(f"{p.id}: {e}")
-            backward = "scene" in spec and faces_backward(built)
+            backward = "scene" in spec and (spec.get("backward", False) or faces_backward(built))
             kit = {"id": kit_id, "name": f"No Man's Sky {name} hulls", "slots": [s for s in slots if any(p.slot == s for p in built)],
                    "scale": spec["scale"], "yaw": 180 if backward else 0, "parts": []}
             if PART_STATS:
@@ -799,9 +832,11 @@ class KitBuilder:
                 parent = glb_nodes[n] = w.add_node(n.name if n is not n.scene.root else n.name.rsplit("\\", 1)[-1], parent, t, r, sc)
             return parent
 
-        drawn = [p for p in asm.meshes if not SKIP_NODES.search(p.path)]
+        drawn = [p for p in asm.meshes if not SKIP_NODES.search(p.path) and part.allows(p.path)]
+        if part.frame is not None:   # a framed model is drawn flat: no node hierarchy, no animations
+            animated = set()
         colour = engine_colour(asm)
-        for i, placed in enumerate(scene.finest_meshes(drawn, part.lod_floor)):
+        for i, placed in enumerate(scene.finest_meshes(drawn, part.lod_floor, part.drop_detail and part.lod_floor >= 2)):
             g = placed.scene.geometry
             name, cls = self.materials.name_for(placed, colour)
             role = name.rsplit("_", 1)[1]
@@ -835,13 +870,15 @@ class KitBuilder:
                 pos = geometry.apply(world, m.positions)
             else:
                 world = placed.world(overrides) if overrides else placed.matrix
+                if part.frame is not None:
+                    world = part.frame @ world
                 pos = geometry.apply(world, m.positions)
                 nrm = geometry.apply_normals(world, m.normals)
                 idx = m.indices[:, ::-1] if np.linalg.det(world[:3, :3]) < 0 else m.indices
                 w.add_mesh(f"{part.id}_{i:03d}_{placed.node.name}__{name}", pos, nrm, uvs, idx, mat, uvs2=uvs2)
             lo, hi = np.minimum(lo, pos.min(0)), np.maximum(hi, pos.max(0))
             tris += m.triangle_count
-        part.mounts = locator_mounts(asm, scale, overrides)
+        part.mounts = locator_mounts(asm, scale, overrides) if part.frame is None else []
         part.scale = scale
         part.engine_colour = colour
         if tris == 0 and not (part.option is None and part.mounts):
@@ -862,7 +899,7 @@ class KitBuilder:
     def build_capital(self, cid, spec):
         """A capital ship: one model from its scene (the descriptor's likeliest choices), coarser LODs until it fits its
         triangle budget, shrunk to its longest length; its turrets, hangar and exhausts as mounts. Returns the ship entry."""
-        scene_path = SPACECRAFT + spec["scene"] + ".scene.mbin"
+        scene_path = scene_file(spec["scene"])
         if not self.banks.exists(scene_path):
             self.report.warn(f"{cid}: {scene_path} is not in the archives; skipped")
             return None
@@ -1121,17 +1158,24 @@ def write_json(path, data):
 
 
 def build(banks, out, classes=None, report=None, limit_parts=None, max_texture=MAX_TEXTURE):
+    """Builds the mod: `classes` names ship classes (CLASSES), capital ships (CAPITALS), station models (world.STATIONS)
+    and weapons (weapons.WEAPONS), or the words "stations" / "weapons" for all of them. Returns (kits, ships, report);
+    the report's `extras` holds the systems, stations and items written."""
+    import weapons as weapons_mod
+    import world
     report = report or Report()
     t0 = time.time()
-    classes = classes or list(CLASSES)
+    classes = list(classes) if classes else list(CLASSES)
     os.makedirs(out, exist_ok=True)
     kb = KitBuilder(banks, out, report, MAX_VARIANTS, MAX_PARTS_PER_SLOT)
     kits, ships = [], []
     capitals = [c for c in classes if c in CAPITALS]
+    station_ids = [c for c in classes if c in world.STATIONS] + (list(world.STATIONS) if "stations" in classes else [])
+    weapon_ids = [c for c in classes if c in {w["id"] for w in weapons_mod.WEAPONS}] + ([w["id"] for w in weapons_mod.WEAPONS] if "weapons" in classes else [])
     classes = [c for c in classes if c in CLASSES]
     for class_id in classes:
         spec = CLASSES[class_id]
-        log(f"{spec['name']} ({SPACECRAFT}{spec.get('proc') or spec.get('scene')})")
+        log(f"{spec['name']} ({scene_file(spec.get('proc') or spec.get('scene'))})")
         for kit, name, parts in kb.build_class(class_id, spec, limit_parts):
             pal, slots, presets = colour_slots()
             kit["palettes"], kit["colorSlots"], kit["presets"] = pal, slots, presets
@@ -1141,29 +1185,60 @@ def build(banks, out, classes=None, report=None, limit_parts=None, max_texture=M
             log(f"  {kit['id']}: {len(parts)} parts, {tris} triangles ({time.time() - t0:.0f} s)")
     for cid in capitals:
         spec = CAPITALS[cid]
-        log(f"{spec['name']} ({SPACECRAFT}{spec['scene']})")
+        log(f"{spec['name']} ({scene_file(spec['scene'])})")
         entry = kb.build_capital(cid, spec)
         if entry:
             ships.append(entry)
             log(f"  {cid}: {entry['modelLength'] / UNITS_PER_METRE:.0f} m, {len([m for m in entry['mounts'] if m['slotType'] == 2])} turrets, "
                 f"{len([m for m in entry['mounts'] if m['slotType'] == 3])} exhausts ({time.time() - t0:.0f} s)")
+    systems, stations, items = [], [], []
+    if station_ids:
+        systems, stations, _ = world.build_world(kb, station_ids)
+        log(f"  {len(stations)} stations in {len(systems)} systems ({time.time() - t0:.0f} s)")
+    if weapon_ids:
+        log("Weapons...")
+        from nms import tables
+        tech = tables.technologies(banks.read(tables.TECH_TABLE)) if banks.exists(tables.TECH_TABLE) else {}
+        if not tech:
+            report.warn(f"{tables.TECH_TABLE} is missing or unreadable: no weapons")
+        else:
+            texts = tables.english(banks.read(f) for f in tables.english_files(banks))
+            items = weapons_mod.build_weapons(banks, out, report, texts, tech, weapon_ids)
+            log(f"  {len(items)} weapons ({time.time() - t0:.0f} s)")
     log("Textures...")
     done, failed = kb.materials.convert(out, max_texture)
     log(f"  {done} written" + (f", {failed} failed" if failed else ""))
     for kit in kits:
         kit["materials"] = kb.materials.kit_entries()
-    write_json(os.path.join(out, "shipkits.json"), kits)
-    write_json(os.path.join(out, "ships.json"), ships)
+    if kits or ships or not (systems or items):
+        write_json(os.path.join(out, "shipkits.json"), kits)
+        write_json(os.path.join(out, "ships.json"), ships)
+    if systems:
+        write_json(os.path.join(out, "systems.json"), systems)
+        write_json(os.path.join(out, "stations.json"), stations)
+    if items:
+        write_json(os.path.join(out, "items.json"), items)
+    report.extras = {"systems": systems, "stations": stations, "items": items}
+    sold = sorted({s["name"] for s in ships if "kit" in s and "dealer" in s})
+    hostile = sorted({s["name"] for s in ships if "kit" in s and "dealer" not in s})
+    capital = sorted({s["name"] for s in ships if "kit" not in s})
+    parts = ["No Man's Sky's starships as customizable hulls: " + ", ".join(sold)] if sold else []
+    if hostile:
+        parts.append("its sentinel craft and drones as hostile fighters: " + ", ".join(hostile))
+    if capital:
+        parts.append("its freighters, frigates and dreadnoughts in the orbits' traffic: " + ", ".join(capital))
+    if systems:
+        parts.append(f"{len(systems)} systems of its own with its space stations, derelict freighters and the Anomaly: " + ", ".join(s["name"] for s in systems))
+    if items:
+        parts.append("its ship weapons in the shops: " + ", ".join(i["name"]["en"] for i in items))
     write_json(os.path.join(out, "mod.json"), {
         "id": MOD_ID, "name": "No Man's Sky ships", "version": VERSION, "author": "built by nms_ships_importer",
-        "description": "No Man's Sky's starships as customizable hulls: " + ", ".join(sorted({s["name"] for s in ships if "kit" in s}))
-                       + (("; its freighters, frigates and dreadnoughts in the orbits' traffic: " + ", ".join(sorted({s["name"] for s in ships if "kit" not in s}))) if any("kit" not in s for s in ships) else "")
-                       + ". Built on this device from your own copy of No Man's Sky. Customize them in the hangar.",
-        "credits": "Models and textures: No Man's Sky (c) Hello Games, from the player's own copy of the game. For personal use: don't share the built mod.",
-        "multiplayerIgnore": ["parts/", "maps/", "models/"]})
+        "description": "; ".join(parts) + ". Built on this device from your own copy of No Man's Sky.",
+        "credits": "Models, textures and numbers: No Man's Sky (c) Hello Games, from the player's own copy of the game. For personal use: don't share the built mod.",
+        "multiplayerIgnore": ["parts/", "maps/", "models/", "fx/"]})
     if report.missing_textures:
         report.warn(f"{len(report.missing_textures)} textures named by materials are not in the archives (e.g. {report.missing_textures[0]})")
-    log(f"Done in {time.time() - t0:.0f} s: {len(kits)} kits, {sum(len(k['parts']) for k in kits)} parts -> {out}")
+    log(f"Done in {time.time() - t0:.0f} s: {len(kits)} kits, {sum(len(k['parts']) for k in kits)} parts, {len(stations)} stations, {len(items)} weapons -> {out}")
     return kits, ships, report
 
 

@@ -44,21 +44,24 @@ python3 import.py "<the game folder>"
 
 (`py import.py ...` on Windows.) The game folder is the one holding `GAMEDATA` (Steam: `.../steamapps/common/No Man's Sky`);
 the `PCBANKS` or `IOSBANKS` folder itself works too. The mod is written to `nms_ships` next to `import.py` (`--out` for
-elsewhere; `--zip` also zips it). A build of every class takes a minute or two.
+elsewhere; `--zip` also zips it). A build of everything takes four or five minutes.
 
 | Option | |
 |---|---|
-| `--classes fighter,hauler` | Only these classes (`--list-classes` shows them: fighter, hauler, explorer, shuttle, exotic, solar, sentinel, living, the fixed designs and the capital ships; `procedural` / `fixed` / `capitals` for those groups). Default: all. |
+| `--classes fighter,hauler` | Only these (`--list-classes` shows the names: the ship classes, the fixed designs, the hostile craft, the capital ships, the station models and the weapons; `procedural` / `fixed` / `hostile` / `capitals` / `stations` / `weapons` for those groups, mixed as you like: `fighter,stations`). Default: all. |
 | `--max-parts N` | Parts per slot at most (default 14): the fighters have ten wings, the shuttles dozens of hull pieces. |
 | `--max-variants N` | Variants of one part over its nested accessories (default 4): `Wings F`, `Wings F (Acc A3)` ... |
 | `--max-texture N` | The textures' longest side (default 2048; 1024 for phones). |
 | `--limit-parts N` | A quick test build with N parts per slot. |
 | `--fresh` | Delete the output folder first. |
+| `--verbose` | Print the build's notes: triangle counts, LOD floors, which models were turned. |
 | `--config file` | Settings as JSON; `config.json` next to `import.py` is read by itself (copy `config.example.json`). |
 
 Put the built `nms_ships` folder (or its zip) in the remake's mods folder (the game's Settings > Mods page says where)
 and turn it on. The ships are sold by the ordinary ship dealers now and then (from tech level 3) and in the Space
-Lounges; in the hangar, **Customize ship** under Inspect ship opens the parts and colours.
+Lounges; in the hangar, **Customize ship** under Inspect ship opens the parts and colours. The No Man's Sky systems
+lie in the star map's far corner past Me'enkk and Alda, reached through Euclid's jumpgate; the weapons are in the
+shops from tech level 3.
 
 ## What the mod holds
 
@@ -120,6 +123,43 @@ races and the pirates, the explorers, exotics, solar and living ships and the fi
 sentinel interceptors, police and drone ships and the brood craft for the Void. The sentinel capital ship, the brood
 frigate and hive, the pirate dreadnought and the pirate cruiser are their hostile capital ships.
 
+**Hostile craft.** The sentinels' drones from the game's robots folder fly for the Void as small hostile craft, never
+sold: the sentinel drone, the armoured drone, the summoner, the corrupted drone, the repair drone, the cargo scan drone
+and the derelict freighters' security drone, with the police ship, the drone ship and the brood fighter and drone from
+the spacecraft folder. They are built like the fixed designs (their critical-hit meshes and their patrol and
+investigate eyes left out, the attack eye kept; the sentinel drones look along -Z and are turned round) and keep their
+idle loops. `--classes hostile` builds only these.
+
+**Stations and systems.** The game's space structures become the remake's stations (`stations.json`), in six star
+systems of their own (`systems.json`) named after the game's galaxies (Euclid, Hilbert Dimension, Calypso, Hesperius
+Dimension, Hyades, Eissentam), a cluster in the star map's far corner next to Me'enkk and Alda, reached through Euclid's
+jumpgate; only the mods' ships fly there. The space station in its five shapes (cube, icosahedron, octahedron,
+tetrahedron, sphere) and the newer orbital station in three (towers, disk, cross) are the docking stations, with the
+small trading outpost; the outlaw station is Hyades's, a lawless system. The derelict freighters (six of the game's
+layouts, from `POI/HULK/HULKSTRUCTURE01-07`), the starship wreck (`POI/SPACEDEBRIS`), the abandoned station and the
+Atlas Interface stand in orbits of their own as structures to fly past (the remake's `nodock`). The Space Anomaly
+roams the cluster as a mobile station, docking and all. The game's space portal (`POI/GATE_POI`) is the systems'
+jumpgate. Each model is the structure's exterior (a station's interior hangs under a separate subtree, and is left
+out), its shape forced through the descriptor, turned so its docking tunnel faces +Z the way the remake launches
+ships (the turn is baked into the model, so the glTF importer's X flip can't undo it), coarser detail levels until it
+fits its triangle budget, and past LOD floor 1 without the mesh families that have no LODs at all (the interior props,
+the derelicts' gore). The big stations are shrunk to the remake's 5 km (the orbital station is 9.5 km across in the
+game); the derelicts and the wreck are scaled up x3.5 like the ships, so they keep their size against them. The
+stations' materials come over like the ships'. `--classes stations` builds only these; a station model's name
+(`--list-classes`) builds that one.
+
+**Ship weapons.** The game's starship weapons are items in the shops (`items.json`): the Photon Cannon, Phase Beam,
+Positron Ejector, Infra-Knife Accelerator, Cyclotron Ballista and Rocket Launcher, the Sentinel Cannon of the
+interceptors and the living ships' Spewing Vents and Grafted Eyes. Each is based on the original weapon that behaves
+most like it (a blaster, an auto-cannon, a scatter gun, a beam laser, an unguided rocket) with the game's own numbers
+from its technology table: damage per hit (scaled by 1/150: the game's hulls are in the thousands), the rate of fire
+as the reload, the range as the shot's lifetime, the bullets per shot as a salvo or the scatter gun's spread, the
+blast radius, a rocket's cooldown; a beam's shield leech becomes extra shield damage. Their names and descriptions
+are the game's English texts, their shop icons the game's technology icons on a panel, their bolts the game's own
+projectile and bullet textures where those are sprites (the Photon Cannon's and Sentinel Cannon's bullets, the rocket),
+their colours the projectiles' lights otherwise, with the game's energy-hit impact and muzzle flash. The remake's
+sounds stay (the game's are Wwise banks). `--classes weapons` builds only these; a weapon's id builds that one.
+
 **Part bonuses.** Each part changes the ship a little by its size against the other parts of its slot, the flavour
 No Man's Sky had before its 4.0 update (big wings carried more): wider wings and sails give cargo and cost handling
 and turn rate, a bigger cockpit or hull gives hull points and cargo and costs acceleration, bigger engines give speed
@@ -160,7 +200,10 @@ formats):
 - `textures.py`: DDS (BC1 / BC4 / BC5 / BC7 through Pillow, ASTC through an optional decoder) as PNG.
 - `animation.py`: the entity files' animation and rotation components, the `.anim.mbin` keyframes.
 
-`tools/build.py` turns the classes into the mod; `tools/glb.py` writes the GLB parts.
+- `tables.py`: the technology table (the ship weapons' numbers) and the English texts.
+
+`tools/build.py` turns the classes into the mod; `tools/world.py` the stations and their systems, `tools/weapons.py`
+the weapons; `tools/glb.py` writes the GLB parts.
 
 ## Tests
 

@@ -68,7 +68,7 @@ def main():
             pass
     ap = argparse.ArgumentParser(description="Builds the nms_ships mod for the Galaxy on Fire 2 Unity Remake from your own No Man's Sky files.")
     ap.add_argument("game", nargs="?", help="the game folder, or its GAMEDATA/PCBANKS or GAMEDATA/IOSBANKS folder")
-    ap.add_argument("--classes", default="all", help="the ship classes to build: all (default), or a list like fighter,hauler (--list-classes shows them)")
+    ap.add_argument("--classes", default="all", help="what to build: all (default), or a list like fighter,hauler,stations,weapons (--list-classes shows the names)")
     ap.add_argument("--list-classes", action="store_true", help="list the ship classes and stop")
     ap.add_argument("--config", help="a settings file (default: config.json next to this script, when there is one)")
     ap.add_argument("--out", default=os.path.join(HERE, "nms_ships"), help="where the mod goes (default: nms_ships next to this script)")
@@ -83,6 +83,7 @@ def main():
     ap.add_argument("--no-part-stats", action="store_true", help="no stat bonuses from the parts' sizes (big wings carry more, big engines go faster)")
     ap.add_argument("--zip", action="store_true", help="also zip the mod")
     ap.add_argument("--fresh", action="store_true", help="delete the output folder first")
+    ap.add_argument("--verbose", action="store_true", help="print the build's notes (triangle counts, LOD floors, turns)")
     first, _ = ap.parse_known_args()
     config = os.path.abspath(os.path.expanduser(first.config)) if first.config else CONFIG
     if first.config and not os.path.exists(config):
@@ -92,26 +93,37 @@ def main():
     check_python()
     import build
     from nms import hgpak
+    import weapons
+    import world
     if a.list_classes:
         for k, v in build.CLASSES.items():
-            print(f"  {k:20} {v['name']}: {v['description']}" + ("" if "proc" in v else "  (a fixed design)"))
+            print(f"  {k:20} {v['name']}: {v['description']}" + ("" if "proc" in v else "  (a hostile craft in the traffic)" if v.get("traffic_only") else "  (a fixed design)"))
         for k, v in build.CAPITALS.items():
             print(f"  {k:20} {v['name']}: {v['description']}  (a capital ship in the traffic)")
-        print("  all                  everything; procedural = the customizable classes; fixed = the fixed designs; capitals = the capital ships")
+        for k, v in world.STATIONS.items():
+            print(f"  {k:20} {v['name']}  (a station model, {v['scene']})")
+        for w in weapons.WEAPONS:
+            print(f"  {w['id']:20} a ship weapon ({w['tech']})")
+        print("  all                  everything; procedural = the customizable classes; fixed = the fixed designs; hostile = the hostile craft;\n"
+              "  capitals = the capital ships; stations = the stations and their systems; weapons = the ship weapons")
         return
     if not a.game:
         ap.error(f"give the game folder (or \"game\" in {os.path.basename(config)})")
     banks_folder = hgpak.find_banks(a.game)
     if not banks_folder:
         fail(f"no PCBANKS or IOSBANKS folder with .pak archives under {a.game}")
-    classes = list(build.CLASSES) + list(build.CAPITALS) if a.classes in ("all", "") else [c.strip() for c in a.classes.split(",") if c.strip()]
-    if classes == ["procedural"]:
-        classes = [c for c, v in build.CLASSES.items() if "proc" in v]
-    elif classes == ["fixed"]:
-        classes = [c for c, v in build.CLASSES.items() if "scene" in v]
-    elif classes == ["capitals"]:
-        classes = list(build.CAPITALS)
-    unknown = [c for c in classes if c not in build.CLASSES and c not in build.CAPITALS]
+    groups = {"procedural": [c for c, v in build.CLASSES.items() if "proc" in v],
+              "fixed": [c for c, v in build.CLASSES.items() if "scene" in v and not v.get("traffic_only")],
+              "hostile": [c for c, v in build.CLASSES.items() if v.get("traffic_only")],
+              "capitals": list(build.CAPITALS), "stations": ["stations"], "weapons": ["weapons"]}
+    groups["all"] = [c for g in ("procedural", "fixed", "hostile", "capitals", "stations", "weapons") for c in groups[g]]
+    classes = []
+    for c in ("all" if a.classes in ("all", "") else a.classes).split(","):
+        c = c.strip()
+        if c:
+            classes.extend(groups.get(c, [c]))
+    known = set(build.CLASSES) | set(build.CAPITALS) | set(world.STATIONS) | {w["id"] for w in weapons.WEAPONS} | {"stations", "weapons"}
+    unknown = [c for c in classes if c not in known]
     if unknown:
         fail(f"unknown classes: {', '.join(unknown)} (--list-classes lists them)")
     out = os.path.abspath(os.path.expanduser(a.out))
@@ -134,6 +146,9 @@ def main():
     if a.zip:
         z = build.zip_mod(out, out + ".zip")
         print(f"Zipped: {z}")
+    if a.verbose:
+        for n in report.notes:
+            print("  note: " + n)
     if report.warnings:
         print(f"{len(report.warnings)} warnings (above).")
 

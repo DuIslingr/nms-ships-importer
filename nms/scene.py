@@ -246,10 +246,12 @@ class Assembler:
 LOD_SUFFIX = re.compile(r"lod\d+", re.I)
 
 
-def finest_meshes(meshes, floor=0):
+def finest_meshes(meshes, floor=0, drop_detail=False):
     """Of the placed meshes, those of the finest LOD level that has a stream, per mesh family (`BodyLOD0`, `BodyLOD1`
     and their `SUB1Body...` children are families of their own): the iOS game ships no LOD0 for its big hulls. With a
-    `floor`, the finest level at or above it that the family has (else its finest), for the big ships' budgets."""
+    `floor`, the finest level at or above it that the family has (else its finest), for the big ships' budgets; with
+    `drop_detail`, a family with no level but its finest is left out altogether (a station's interior props and the
+    derelicts' gore have no LODs: the game never sees them from afar)."""
     levels = {}
     for p in meshes:
         if not p.scene.geometry.has(p.node.name):
@@ -258,6 +260,9 @@ def finest_meshes(meshes, floor=0):
     best = {}
     for key, lods in levels.items():
         above = [l for l in lods if l >= floor]
+        if drop_detail and len(lods) < 2:
+            best[key] = None
+            continue
         best[key] = min(above) if above else max(lods)
     return [p for p in meshes if p.scene.geometry.has(p.node.name) and best.get(LOD_SUFFIX.sub("", p.path).lower()) == p.node.lod]
 

@@ -185,7 +185,7 @@ def entity_components(data):
 
 import re as _re
 
-NOT_IN_FLIGHT = _re.compile(r"(gear|land|enter|exit|eject|hatch|scanline|takeoff|blank)", _re.I)
+NOT_IN_FLIGHT = _re.compile(r"(gear|land|enter|exit|eject|hatch|scanline|takeoff|blank|stunned|alarm|\bfix\b|engage|chatter|brace|signal|shoot|appear|\bhit\b|attack|repair)", _re.I)
 
 
 def flight_loop(component):
