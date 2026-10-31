@@ -151,6 +151,12 @@ count is the number of u16): `scale = 1 / (0x3FFF sqrt 2)`, `qx = scale ((cx & 0
 3 x, 2 y, 1 z, 0 w. Scales and translations are Vector3f (16 bytes). A node's index below the frame lists' length picks
 the animated value; at or past it, the still frame's value at index minus that length. 30 frames per second.
 
+**Options named for a mesh's LOD.** The living ship's descriptor names its options after mesh nodes with their LOD
+suffix (`_wings_ALOD0`, `_feet_BLOD0`), the LOD1-3 siblings lying beside them at the scene's root, and some groups
+list every LOD as an option of its own (`_frontfeet_BLOD0` ... `_frontfeet_BLOD3`). A chooser must treat a node as
+its option with the suffix stripped (else the unpicked options' coarser LODs leak into the hull), take an option's
+finest LOD sibling where the named node is gone (the iOS game drops LOD0), and skip the LOD1-3 twins as options.
+
 **The iOS game's animation files** differ from the PC's in two ways: the still frame's and the frames' scales and
 translations are four half floats (8 bytes each) instead of four floats (16), told apart by the gap between the
 scales' and the translations' data; and the longer animations keep every other frame (`wingd_landing`: 91 frames

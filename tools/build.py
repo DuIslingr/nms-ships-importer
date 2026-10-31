@@ -639,7 +639,7 @@ class KitBuilder:
         slot = slot or group.slot
         out = []
         for o in group.options:
-            if o.is_none and len(group.options) > 1:
+            if (o.is_none and len(group.options) > 1) or descriptors.lod_twin(o, group):
                 continue
             for v_id, v_name, picks in self.variants(o):
                 if len(out) >= self.max_parts:
@@ -657,7 +657,7 @@ class KitBuilder:
         for g in option.groups:
             first = descriptors.likeliest(g)
             for alt in g.options:
-                if alt is first or len(out) >= self.max_variants:
+                if alt is first or len(out) >= self.max_variants or descriptors.lod_twin(alt, g):
                     continue
                 picks = {option.id.lower()}
                 for g2 in option.groups:

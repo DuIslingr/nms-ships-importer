@@ -81,20 +81,32 @@ class Descriptor:
         return {o.name.lower() for g in self.walk() for o in g.options}
 
 
+def lod_twin(option, group):
+    """Whether the option is only a coarser LOD of another option of its group (`_frontfeet_BLOD1` beside
+    `_frontfeet_BLOD0`): the game lists each LOD of some meshes as an option of its own."""
+    import re
+    m = re.match(r"(.*)lod([1-9]\d*)$", option.name, re.I)
+    if not m:
+        return False
+    return any(o is not option and re.fullmatch(re.escape(m.group(1)) + r"lod0", o.name, re.I) for o in group.options)
+
+
 def chooser(descriptor, picks):
     """A `choose(node)` for scene.Assembler: a node named like an option shows only when it is in `picks` (a set of
     option ids or names, lower case); every other node shows."""
+    import re
+    lod = re.compile(r"lod\d+$", re.I)
     names = {}
     for g in descriptor.walk():
-        for o in g.options:
-            names[o.name.lower()] = o
+        for o in g.options:   # an option named for a mesh's LOD0 covers its LOD siblings; some list each LOD as an option
+            names.setdefault(lod.sub("", o.name.lower()), []).append(o)
     picked = {p.lower() for p in picks}
 
     def choose(node):
-        o = names.get(node.name.lower())
-        if o is None:
+        options = names.get(lod.sub("", node.name.lower()))
+        if options is None:
             return True
-        return o.id.lower() in picked or o.name.lower() in picked
+        return any(o.id.lower() in picked or o.name.lower() in picked for o in options)
     return choose
 
 

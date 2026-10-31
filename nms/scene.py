@@ -183,7 +183,7 @@ class Assembler:
         parent = s.root.find(within) if within else s.root
         if parent is None:
             raise KeyError(f"{path}: no node {within}")
-        node = parent.find(name)
+        node = parent.find(name) or finest_lod_node(parent, name)
         if node is None:
             raise KeyError(f"{path}: no node {name}" + (f" under {within}" if within else ""))
         M = np.identity(4) if matrix is None else matrix
@@ -244,6 +244,19 @@ class Assembler:
 
 
 LOD_SUFFIX = re.compile(r"lod\d+", re.I)
+
+
+def finest_lod_node(parent, name):
+    """An option named for a mesh's LOD0 (`_wings_ALOD0`) whose node is gone (the iOS game drops the big hulls'
+    LOD0): the finest of its LOD siblings that is there, else None."""
+    m = re.match(r"(.*)lod\d+$", name, re.I)
+    if not m:
+        return None
+    for level in range(1, 8):
+        node = parent.find(f"{m.group(1)}LOD{level}")
+        if node is not None:
+            return node
+    return None
 
 
 def finest_meshes(meshes, floor=0, drop_detail=False):
