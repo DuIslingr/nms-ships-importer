@@ -218,6 +218,23 @@ ring in the XY plane). The sentinel drones (`COMMON/ROBOTS/DRONE*`, 2-3 m) look 
 and their engine behind; their scenes carry one eye and engine-effect mesh per state (`PatrolEye`, `AttackEye`,
 `InvestEye`) and a `critmesh` for critical hits.
 
+## Sounds (`AUDIO/WINDOWS/*.BNK`, `*.TXT`, `MEDIA/*.WEM`)
+
+Wwise. The persistent bank `NMS_AUDIO_PERSISTENT.BNK` holds the game's sound objects and 4 911 small in-memory
+sounds (its `DIDX` chunk: u32 id, u32 offset, u32 size per entry, into the `DATA` chunk); the 21 008 streamed sounds
+are `MEDIA/<id>.WEM`. Beside each bank the game ships Wwise's SoundbanksInfo listing as `<bank>.TXT`: tab-separated
+blocks (`Event`, `Switch`, `State`, `Game Parameter`, `Streamed Audio`, `In Memory Audio` ...), the audio rows giving
+id, name, source file, generated `<id>.wem` and the Wwise Object Path, the project's folder tree, which names a
+sound's use: `\Actor-Mixer Hierarchy\Player\Ship\Pl_Ship\Pl_Ship_Engines\Pl_Ship_Engines_Fighter\Pl_Ship_Space\
+Pl_Ship_Fighter_Space_Speed2_Rr` (the fighter's rear engine layer at speed 2), `...\Pl_Ship_Weapons\Wpn_Ship_Positron_
+Fire\...`, `...\NPCs\NPC_Ships\NPC_Ship_Engines\NPC_Ship_Engine_Drone\Drone_Engine_Rear_01`. The other banks are
+the loading music (`MUS_LOADING01-52`), the localized voice banks and the Pulse instrument maps. The event-to-sound
+links are in the bank's `HIRC` objects and are not needed: the paths say enough.
+
+The WEMs are RIFF with fmt tag 0xFFFF, Wwise Vorbis (a 0x42-byte fmt with the setup data, no `vorb` chunk): Ogg
+Vorbis with the page and header structure stripped and the codebooks taken from Audiokinetic's packed set, so neither
+ffmpeg nor Python's libraries read them; vgmstream and ww2ogg (with `packed_codebooks_aoTuV_603.bin`) do.
+
 ## Tools that read these formats
 
 monkeyman192/HGPAKTool (the archive spec), monkeyman192/MBINCompiler (libMBIN, the template layouts; v7.10.0.1 for 7.10),

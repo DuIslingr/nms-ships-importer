@@ -81,6 +81,7 @@ def main():
                          "loop = their take-off and landing played in a loop; rest = as modelled (the landed pose)")
     ap.add_argument("--no-animations", action="store_true", help="no animations: no spinning turbines, no idle loops, the landed pose")
     ap.add_argument("--no-part-stats", action="store_true", help="no stat bonuses from the parts' sizes (big wings carry more, big engines go faster)")
+    ap.add_argument("--no-sounds", action="store_true", help="no engine, boost and weapon sounds from the game (they need vgmstream-cli or ww2ogg on the PATH)")
     ap.add_argument("--zip", action="store_true", help="also zip the mod")
     ap.add_argument("--fresh", action="store_true", help="delete the output folder first")
     ap.add_argument("--verbose", action="store_true", help="print the build's notes (triangle counts, LOD floors, turns)")
@@ -139,6 +140,7 @@ def main():
     build.TRANSITIONS = a.transitions
     build.ANIMATIONS = not a.no_animations
     build.PART_STATS = not a.no_part_stats
+    build.SOUNDS = not a.no_sounds
     try:
         kits, ships, report = build.build(banks, out, classes, limit_parts=a.limit_parts, max_texture=a.max_texture)
     except hgpak.MissingCodec as e:

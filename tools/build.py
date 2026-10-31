@@ -37,6 +37,7 @@ MAX_TEXTURE = 2048
 TRANSITIONS = "pose"            # "pose": the ship in its flying pose (the end of its take-off), "loop": take-off and landing looped, "rest": as modelled
 ANIMATIONS = True
 PART_STATS = True              # small hull / cargo / handling / speed bonuses from each part's size
+SOUNDS = True                  # the game's engine, boost and weapon sounds (needs a WEM decoder on the PATH)
 
 SPACECRAFT = "models/common/spacecraft/"
 
@@ -1205,6 +1206,12 @@ def build(banks, out, classes=None, report=None, limit_parts=None, max_texture=M
             texts = tables.english(banks.read(f) for f in tables.english_files(banks))
             items = weapons_mod.build_weapons(banks, out, report, texts, tech, weapon_ids)
             log(f"  {len(items)} weapons ({time.time() - t0:.0f} s)")
+    if SOUNDS and (ships or items):
+        import sounds as sounds_mod
+        log("Sounds...")
+        n = sounds_mod.apply(banks, out, report, ships, items)
+        if n >= 0:
+            log(f"  {n} sound files ({time.time() - t0:.0f} s)")
     log("Textures...")
     done, failed = kb.materials.convert(out, max_texture)
     log(f"  {done} written" + (f", {failed} failed" if failed else ""))
@@ -1235,7 +1242,7 @@ def build(banks, out, classes=None, report=None, limit_parts=None, max_texture=M
         "id": MOD_ID, "name": "No Man's Sky ships", "version": VERSION, "author": "built by nms_ships_importer",
         "description": "; ".join(parts) + ". Built on this device from your own copy of No Man's Sky.",
         "credits": "Models, textures and numbers: No Man's Sky (c) Hello Games, from the player's own copy of the game. For personal use: don't share the built mod.",
-        "multiplayerIgnore": ["parts/", "maps/", "models/", "fx/"]})
+        "multiplayerIgnore": ["parts/", "maps/", "models/", "fx/", "audio/"]})
     if report.missing_textures:
         report.warn(f"{len(report.missing_textures)} textures named by materials are not in the archives (e.g. {report.missing_textures[0]})")
     log(f"Done in {time.time() - t0:.0f} s: {len(kits)} kits, {sum(len(k['parts']) for k in kits)} parts, {len(stations)} stations, {len(items)} weapons -> {out}")

@@ -259,3 +259,98 @@ class TablesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def make_bank_table(rows):
+    """A Wwise SoundbanksInfo listing: (name, streamed file or None, path) rows, in-memory ones in their own block."""
+    out = ["Event\tID\tName\t\t\tWwise Object Path\tNotes", "\t1\tPlay_Thing\t\t\t\\Events\\Play_Thing\t", ""]
+    out.append("Streamed Audio\tID\tName\tAudio source file\tGenerated audio file\tWwise Object Path\tNotes")
+    for i, (name, file, path) in enumerate(rows):
+        if file:
+            out.append(f"\t{1000 + i}\t{name}\tU:\\src\\{name}.wav\t{file}\t{path}\t")
+    out.append("")
+    out.append("In Memory Audio\tID\tName\tAudio source file\tGenerated audio file\tWwise Object Path\tNotes")
+    for i, (name, file, path) in enumerate(rows):
+        if not file:
+            out.append(f"\t{1000 + i}\t{name}\tU:\\src\\{name}.wav\t\t{path}\t")
+    return "\n".join(out).encode()
+
+
+def make_bnk(embedded):
+    """A bank with a DIDX / DATA pair holding {id: bytes}."""
+    import struct
+    data = b"".join(embedded.values())
+    didx, off = b"", 0
+    for sid, blob in embedded.items():
+        didx += struct.pack("<III", sid, off, len(blob))
+        off += len(blob)
+    return b"BKHD" + struct.pack("<I", 8) + b"\0" * 8 + b"DIDX" + struct.pack("<I", len(didx)) + didx + b"DATA" + struct.pack("<I", len(data)) + data
+
+
+class FakeDecoder:
+    available = True
+
+    def convert(self, wem, base):
+        with open(base + ".ogg", "wb") as f:
+            f.write(b"OggS" + wem)
+        return base + ".ogg"
+
+
+class SoundTests(unittest.TestCase):
+    def bank(self, d):
+        from nms import audio
+        rows = [("Pl_Ship_Fighter_Space_Speed2_Rr", "1000.wem", "\\Actor-Mixer Hierarchy\\Player\\Ship\\Pl_Ship\\Pl_Ship_Engines\\Pl_Ship_Engines_Fighter\\Pl_Ship_Space\\Pl_Ship_Fighter_Space_Speed2_Rr"),
+                ("Pl_ShiP_Boost_Start_01", "1001.wem", "\\Actor-Mixer Hierarchy\\Player\\Ship\\Pl_Ship\\Pl_Ship_Boost\\Ship_Boost_Start_Type\\Pl_Ship_Boost_Start\\Pl_ShiP_Boost_Start_01"),
+                ("Pl_ShiP_Boost_Start_02", None, "\\Actor-Mixer Hierarchy\\Player\\Ship\\Pl_Ship\\Pl_Ship_Boost\\Ship_Boost_Start_Type\\Pl_Ship_Boost_Start\\Pl_ShiP_Boost_Start_02"),
+                ("Pl_Ship_Laser01_01", "1003.wem", "\\Actor-Mixer Hierarchy\\Player\\Weapons\\Pl_Ship_Weapons\\Wpn_Pl_Ship_Gun\\Wpn_Ship_Laser_Class_01_Layer_01\\Pl_Ship_Laser01_01"),
+                ("Pl_Ship_Laser01_01", "1003.wem", "\\Actor-Mixer Hierarchy\\Player\\Weapons\\Pl_Ship_Weapons\\Wpn_Pl_Ship_Gun\\Wpn_Ship_Laser_Class_01_Layer_01\\Pl_Ship_Laser01_01"),
+                ("Drone_Engine_Rear_01", "1005.wem", "\\Actor-Mixer Hierarchy\\NPCs\\NPC_Ships\\NPC_Ship_Engines\\NPC_Ship_Engine_Drone\\Drone_Engine_Rear_01")]
+        files = {audio.PERSISTENT + ".txt": make_bank_table(rows), audio.PERSISTENT + ".bnk": make_bnk({1002: b"RIFF-mem"}),
+                 audio.MEDIA + "1000.wem": b"RIFF-eng", audio.MEDIA + "1001.wem": b"RIFF-bs1", audio.MEDIA + "1003.wem": b"RIFF-gun", audio.MEDIA + "1005.wem": b"RIFF-drn"}
+        pc = os.path.join(d, "GAMEDATA", "PCBANKS")
+        os.makedirs(pc)
+        fixtures.write(os.path.join(pc, "NMSARC.Audio.pak"), fixtures.make_hgpak(files))
+        return hgpak.Banks(pc)
+
+    @unittest.skipUnless(HAVE_ZSTD, "no zstd")
+    def test_bank_and_sounds_on_ships_and_weapons(self):
+        """The bank's table and its embedded sounds are read; a fighter gets its engine loop and both boost starts (one
+        streamed, one in the bank), a drone its own loop, a capital ship none here; the photon cannon its shot (the
+        duplicate row once); the files land in audio/."""
+        import sounds
+        from nms import audio
+        with tempfile.TemporaryDirectory() as d:
+            banks = self.bank(d)
+            bank = audio.SoundBank(banks)
+            self.assertEqual(len(bank.sounds), 6)
+            self.assertEqual(bank.wem(bank.find(r"Boost_Start", r"_02$")[0]), b"RIFF-mem")
+            out = os.path.join(d, "mod")
+            os.makedirs(out)
+            ships = [{"id": "fighter", "kit": "fighter"}, {"id": "sentinel_drone", "kit": "sentinel_drone"}, {"id": "freighter"}]
+            items = [{"id": "photon_cannon", "fx": {}}, {"id": "phase_beam"}]
+            report = build.Report()
+            n = sounds.apply(banks, out, report, ships, items, decoder=FakeDecoder(), bank=bank)
+            self.assertEqual(report.warnings, [])
+            self.assertEqual(n, 5)   # the engine, two boost starts, the shot, the drone loop
+            self.assertEqual(ships[0]["sounds"]["engine"]["file"], "audio/Pl_Ship_Fighter_Space_Speed2_Rr.ogg")
+            self.assertEqual(ships[0]["sounds"]["boostStart"]["files"], ["audio/Pl_ShiP_Boost_Start_01.ogg", "audio/Pl_ShiP_Boost_Start_02.ogg"])
+            self.assertNotIn("boostLoop", ships[0]["sounds"])
+            self.assertEqual(ships[1]["sounds"], {"engine": {"file": "audio/Drone_Engine_Rear_01.ogg", "volume": [0.15, 0.27], "pitch": [0.9, 1.1]}})
+            self.assertNotIn("sounds", ships[2])
+            self.assertEqual(items[0]["fx"], {"shot": "audio/Pl_Ship_Laser01_01.ogg", "shotLoops": False})
+            self.assertNotIn("fx", items[1])
+            with open(os.path.join(out, "audio/Pl_ShiP_Boost_Start_02.ogg"), "rb") as f:
+                self.assertEqual(f.read(), b"OggSRIFF-mem")
+
+    @unittest.skipUnless(HAVE_ZSTD, "no zstd")
+    def test_no_decoder_leaves_the_mod_without_sounds(self):
+        import sounds
+        from nms import audio
+        with tempfile.TemporaryDirectory() as d:
+            banks = self.bank(d)
+            ships = [{"id": "fighter", "kit": "fighter"}]
+            report = build.Report()
+            n = sounds.apply(banks, d, report, ships, [], decoder=audio.Decoder(vgmstream="", ww2ogg="", revorb="", ffmpeg=""), bank=audio.SoundBank(banks))
+            self.assertEqual(n, -1)
+            self.assertNotIn("sounds", ships[0])
+            self.assertEqual(len(report.warnings), 1)

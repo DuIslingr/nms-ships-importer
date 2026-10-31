@@ -42,7 +42,7 @@ unpacking first.
 python3 import.py "<the game folder>"
 ```
 
-(`py import.py ...` on Windows.) The game folder is the one holding `GAMEDATA` (Steam: `.../steamapps/common/No Man's Sky`);
+(`py import.py ...` on Windows.) For the sounds, put `vgmstream-cli` on the PATH first (see Sounds below). The game folder is the one holding `GAMEDATA` (Steam: `.../steamapps/common/No Man's Sky`);
 the `PCBANKS` or `IOSBANKS` folder itself works too. The mod is written to `nms_ships` next to `import.py` (`--out` for
 elsewhere; `--zip` also zips it). A build of everything takes four or five minutes.
 
@@ -54,6 +54,7 @@ elsewhere; `--zip` also zips it). A build of everything takes four or five minut
 | `--max-texture N` | The textures' longest side (default 2048; 1024 for phones). |
 | `--limit-parts N` | A quick test build with N parts per slot. |
 | `--fresh` | Delete the output folder first. |
+| `--no-sounds` | No engine, boost and weapon sounds (they need `vgmstream-cli` or `ww2ogg` on the PATH, see Sounds below). |
 | `--verbose` | Print the build's notes: triangle counts, LOD floors, which models were turned. |
 | `--config file` | Settings as JSON; `config.json` next to `import.py` is read by itself (copy `config.example.json`). |
 
@@ -160,6 +161,16 @@ projectile and bullet textures where those are sprites (the Photon Cannon's and 
 their colours the projectiles' lights otherwise, with the game's energy-hit impact and muzzle flash. The remake's
 sounds stay (the game's are Wwise banks). `--classes weapons` builds only these; a weapon's id builds that one.
 
+**Sounds.** The ships fly with the game's own engine and boost sounds and the weapons fire with theirs
+(ships.json `sounds`, items.json `fx.shot`): the player-ship engine layers per ship type (fighter, hauler, explorer,
+shuttle, exotic, sentinel, living ship, racer, Boundary Herald), the drones', the police ship's, the freighters' and
+frigates' engine loops, the boost start, loop, end and power-up of each type, each weapon's shots (the Phase Beam's
+as a loop) and the rockets' blast, picked from the persistent sound bank by their Wwise paths. The game's sounds are
+Wwise Vorbis, which no Python package decodes, so the importer calls `vgmstream-cli` (then `ffmpeg` for Ogg) or
+`ww2ogg` from the PATH; without one it says so and builds the mod without sounds (`--no-sounds` skips them on
+purpose). On Arch: `yay -S vgmstream-cli-bin`; elsewhere a vgmstream release from its site, on the PATH. The sounds
+land in the mod's `audio/` folder, one file per game sound; the remake's own sounds are not replaced.
+
 **Part bonuses.** Each part changes the ship a little by its size against the other parts of its slot, the flavour
 No Man's Sky had before its 4.0 update (big wings carried more): wider wings and sails give cargo and cost handling
 and turn rate, a bigger cockpit or hull gives hull points and cargo and costs acceleration, bigger engines give speed
@@ -201,9 +212,10 @@ formats):
 - `animation.py`: the entity files' animation and rotation components, the `.anim.mbin` keyframes.
 
 - `tables.py`: the technology table (the ship weapons' numbers) and the English texts.
+- `audio.py`: the Wwise sound banks' name tables, the streamed and embedded sounds, the outside decoders.
 
 `tools/build.py` turns the classes into the mod; `tools/world.py` the stations and their systems, `tools/weapons.py`
-the weapons; `tools/glb.py` writes the GLB parts.
+the weapons, `tools/sounds.py` the sounds; `tools/glb.py` writes the GLB parts.
 
 ## Tests
 
