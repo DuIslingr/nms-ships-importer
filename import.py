@@ -151,6 +151,8 @@ def main():
     if a.verbose:
         for n in report.notes:
             print("  note: " + n)
+        for t in report.missing_textures:
+            print("  missing texture: " + t)
     if report.warnings:
         print(f"{len(report.warnings)} warnings (above).")
 
