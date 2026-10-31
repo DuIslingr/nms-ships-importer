@@ -8,7 +8,7 @@ sound is for. In-memory sounds sit in the bank itself: its `DIDX` chunk (u32 id,
 indexes the `DATA` chunk.
 
 The WEM files are Wwise Vorbis (fmt tag 0xFFFF): Ogg Vorbis with the headers stripped and the packets reworked, whose
-codebooks are not in the file. Decoding needs an outside tool: `vgmstream-cli` (to WAV; `ffmpeg` then makes Ogg) or
+codebooks are not in the file. Decoding needs an outside tool: `vgmstream-cli` (to WAV, each sound rendered once with `-i`, so a loop stays one clean pass; `ffmpeg` then makes Ogg) or
 `ww2ogg` (to Ogg; `revorb` optional). None is a Python package, so the importer looks for them on the PATH.
 """
 import os
@@ -109,10 +109,11 @@ class Decoder:
     """Turns WEM bytes into an Ogg (or WAV) file through the tools found on the PATH."""
 
     def __init__(self, vgmstream=None, ww2ogg=None, revorb=None, ffmpeg=None):
-        self.vgmstream = vgmstream or shutil.which("vgmstream-cli") or shutil.which("vgmstream")
-        self.ww2ogg = ww2ogg or shutil.which("ww2ogg")
-        self.revorb = revorb or shutil.which("revorb")
-        self.ffmpeg = ffmpeg or shutil.which("ffmpeg")
+        # None: look on the PATH; "" (or a path): use that
+        self.vgmstream = (shutil.which("vgmstream-cli") or shutil.which("vgmstream")) if vgmstream is None else vgmstream
+        self.ww2ogg = shutil.which("ww2ogg") if ww2ogg is None else ww2ogg
+        self.revorb = shutil.which("revorb") if revorb is None else revorb
+        self.ffmpeg = shutil.which("ffmpeg") if ffmpeg is None else ffmpeg
         self.codebooks = None
         if self.ww2ogg:
             for d in (os.path.dirname(self.ww2ogg), "/usr/share/ww2ogg", "/usr/local/share/ww2ogg"):
@@ -143,7 +144,7 @@ class Decoder:
                 f.write(wem)
             if self.vgmstream:
                 wav = os.path.join(tmp, "out.wav")
-                subprocess.run([self.vgmstream, "-o", wav, src], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.run([self.vgmstream, "-i", "-o", wav, src], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if self.ffmpeg:
                     dst = dst_base + ".ogg"
                     subprocess.run([self.ffmpeg, "-y", "-loglevel", "error", "-i", wav, "-c:a", "libvorbis", "-q:a", "5", dst], check=True)
