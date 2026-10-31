@@ -151,6 +151,12 @@ count is the number of u16): `scale = 1 / (0x3FFF sqrt 2)`, `qx = scale ((cx & 0
 3 x, 2 y, 1 z, 0 w. Scales and translations are Vector3f (16 bytes). A node's index below the frame lists' length picks
 the animated value; at or past it, the still frame's value at index minus that length. 30 frames per second.
 
+**The iOS game's animation files** differ from the PC's in two ways: the still frame's and the frames' scales and
+translations are four half floats (8 bytes each) instead of four floats (16), told apart by the gap between the
+scales' and the translations' data; and the longer animations keep every other frame (`wingd_landing`: 91 frames
+against the PC's 181), flagged by the i32 after the frame and node counts (`1`), so they play at 15 frames a second.
+The reader resamples those to 30 with a blended frame between each two.
+
 ## Engine effects (from the iOS 7.10.4 decompilation)
 
 `cGcSpaceshipComponent::UpdateEngineEffects` fills a Settings block each frame (thrust power, a speed value, boost,

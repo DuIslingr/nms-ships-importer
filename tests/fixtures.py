@@ -289,11 +289,21 @@ def pack_quaternion(q):
     return struct.pack("<HHH", cx & 0x7FFF, cy & 0x7FFF, cz & 0xFFFF)
 
 
-def make_animation(nodes, frames, still):
+def make_animation(nodes, frames, still, ios=False):
     """An .ANIM.MBIN: nodes = [(name, rot_index, scale_index, trans_index)]; frames = [{"rotations": [...], "scales":
-    [...], "translations": [...]}] (quaternions xyzw, vec3s); still = the same for the still frame."""
+    [...], "translations": [...]}] (quaternions xyzw, vec3s); still = the same for the still frame. `ios`: the iOS
+    game's layout, the vectors as four half floats and the half-rate flag set."""
     w = MbinWriter(0x8E7F1986)
     at = w.alloc(0x60)
+
+    def vecs(o, values):
+        if not ios:
+            w.vec4s(o, values)
+            return
+        base = w.alloc(8 * len(values))
+        w.header(o, base, len(values))
+        for i, v in enumerate(values):
+            w.put(base + 8 * i, "<4e", *v)
 
     def frame(o, f):
         rots = f.get("rotations", [])
@@ -301,8 +311,8 @@ def make_animation(nodes, frames, still):
         off = w.alloc(len(data) or 1, 2)
         w.buf[off:off + len(data)] = data
         w.header(o, off, 3 * len(rots))
-        w.vec4s(o + 0x10, [tuple(v) + (1.0,) for v in f.get("scales", [])])
-        w.vec4s(o + 0x20, [tuple(v) + (1.0,) for v in f.get("translations", [])])
+        vecs(o + 0x10, [tuple(v) + (1.0,) for v in f.get("scales", [])])
+        vecs(o + 0x20, [tuple(v) + (1.0,) for v in f.get("translations", [])])
     frame(at, still)
     fb = w.alloc(0x30 * len(frames))
     w.header(at + 0x30, fb, len(frames))
@@ -313,7 +323,7 @@ def make_animation(nodes, frames, still):
     for i, (name, ri, si, ti) in enumerate(nodes):
         w.string(nb + 0x20 * i, name)
         w.put(nb + 0x20 * i + 0x10, "<iii", ri, si, ti)
-    w.put(at + 0x50, "<ii", len(frames), len(nodes))
+    w.put(at + 0x50, "<iii", len(frames), len(nodes), 1 if ios else 0)
     return w.done()
 
 

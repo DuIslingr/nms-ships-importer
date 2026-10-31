@@ -18,8 +18,17 @@ import struct
 import subprocess
 import tempfile
 
-PERSISTENT = "audio/windows/nms_audio_persistent"
+PERSISTENT = "audio/windows/nms_audio_persistent"   # the iOS game has it under audio/ios/
 MEDIA = "audio/windows/media/"
+BANK_NAME = "nms_audio_persistent"
+
+
+def find_bank(banks, name=BANK_NAME):
+    """The bank's path without its extension, whatever the platform folder (audio/windows, audio/ios ...), or None."""
+    for n in banks.names:
+        if n.lower().startswith("audio/") and n.lower().endswith("/" + name + ".txt"):
+            return n[: -len(".txt")]
+    return None
 
 
 class Sound:
@@ -36,13 +45,14 @@ class SoundBank:
     """A bank's sounds by name and Wwise path, and their bytes (a streamed sound's .wem, an in-memory one's slice of
     the bank)."""
 
-    def __init__(self, banks, name=PERSISTENT):
+    def __init__(self, banks, name=None):
         self.banks = banks
-        self.name = name
+        self.name = name or find_bank(banks) or PERSISTENT
+        self.media = self.name.rsplit("/", 1)[0] + "/media/"
         self.sounds = []
         self.by_id = {}
         self._embedded = None
-        table = name + ".txt"
+        table = self.name + ".txt"
         if banks.exists(table):
             self._parse(banks.read(table).decode("utf-8", "replace"))
 
@@ -78,7 +88,7 @@ class SoundBank:
     def wem(self, sound):
         """The sound's WEM bytes, or None when the game lacks them."""
         if sound.streamed and sound.file:
-            p = MEDIA + sound.file
+            p = self.media + sound.file
             return self.banks.read(p) if self.banks.exists(p) else None
         return self.embedded().get(sound.id)
 

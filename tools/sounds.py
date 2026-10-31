@@ -168,7 +168,7 @@ def apply(banks, out, report, ships, items, decoder=None, bank=None):
     from nms import audio
     bank = bank or audio.SoundBank(banks)
     if not bank.sounds:
-        report.note("no sound bank table (audio/windows/nms_audio_persistent.txt): no sounds")
+        report.note("no sound bank table (audio/<platform>/nms_audio_persistent.txt): no sounds")
         return 0
     decoder = decoder or audio.Decoder()
     if not decoder.available:

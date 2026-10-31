@@ -753,7 +753,7 @@ class KitBuilder:
                         r_on, s_on, t_on = an.animated(name)
                         if not (r_on or s_on or t_on):
                             continue
-                        track = an.track(name)
+                        track = an.track_at(name, animation.FPS)
                         out["loop"].append((node, [t[0] for t in track] if r_on else None, [t[2] for t in track] if t_on else None,
                                             [t[1] for t in track] if s_on else None))
             for kind in ("TAKEOFF", "LANDING", "THRUST"):
@@ -771,7 +771,7 @@ class KitBuilder:
                     r_on, s_on, t_on = an.animated(name)
                     if not (r_on or s_on or t_on):
                         continue
-                    track = an.track(name)
+                    track = an.track_at(name, animation.FPS)
                     tracks.append((node, [t[0] for t in track] if r_on else None, [t[2] for t in track] if t_on else None,
                                    [t[1] for t in track] if s_on else None))
                     if (kind == "TAKEOFF" and TRANSITIONS == "pose") or kind == "THRUST":   # THRUST: the jets grown to full thrust

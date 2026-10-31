@@ -174,3 +174,24 @@ class AnimationTests(unittest.TestCase):
         self.assertIsNone(animation.transition(comp, "LANDING"))
         gear_only = fixtures.make_entity(anims=[("GEARUP", "MODELS/X/ANIMS/GEAR.ANIM.MBIN", 0)])
         self.assertIsNone(animation.flight_loop(animation.entity_components(gear_only)[animation.HASH_ANIMATION_COMPONENT]))
+
+
+class IosAnimationTests(unittest.TestCase):
+    def test_ios_layout_half_floats_and_half_rate(self):
+        """The iOS game's animation files keep the vectors as half floats and the longer ones every other frame:
+        the values read the same, and resampled to 30 frames a second the track gets a blended frame between each two."""
+        from nms import animation
+        frames = [{"rotations": [(0, 0, 0, 1)], "translations": [(0, 0, 0)]}, {"rotations": [(0, 0, 0, 1)], "translations": [(2, 4, 6)]}]
+        still = {"rotations": [(0, 0, 0, 1)], "scales": [(1, 1, 1)], "translations": [(5, 0, 0)]}
+        an = animation.Animation(fixtures.make_animation([("WingJNT", 0, 0, 0)], frames, still, ios=True))
+        self.assertTrue(an.half_rate)
+        self.assertEqual(an.fps, 15)
+        self.assertEqual(an.still["translations"], [(5.0, 0.0, 0.0)])
+        self.assertEqual(an.still["scales"], [(1.0, 1.0, 1.0)])
+        self.assertEqual(an.track("WingJNT")[1][2], (2.0, 4.0, 6.0))
+        track = an.track_at("WingJNT", 30)
+        self.assertEqual(len(track), 3)
+        self.assertEqual(track[1][2], (1.0, 2.0, 3.0))
+        pc = animation.Animation(fixtures.make_animation([("WingJNT", 0, 0, 0)], frames, still))
+        self.assertEqual(pc.fps, 30)
+        self.assertEqual(len(pc.track_at("WingJNT", 30)), 2)

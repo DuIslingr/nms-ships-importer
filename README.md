@@ -42,7 +42,7 @@ unpacking first.
 python3 import.py "<the game folder>"
 ```
 
-(`py import.py ...` on Windows.) For the sounds, put `vgmstream-cli` on the PATH first (see Sounds below). The game folder is the one holding `GAMEDATA` (Steam: `.../steamapps/common/No Man's Sky`);
+(`py import.py ...` on Windows.) The iOS game's `GAMEDATA/IOSBANKS` works the same way; its textures are ASTC, which `astcenc` on the PATH (Arch: `astcenc` in `astc-encoder`) or the `astc_decomp_faster` package decodes. For the sounds, put `vgmstream-cli` on the PATH first (see Sounds below). The game folder is the one holding `GAMEDATA` (Steam: `.../steamapps/common/No Man's Sky`);
 the `PCBANKS` or `IOSBANKS` folder itself works too. The mod is written to `nms_ships` next to `import.py` (`--out` for
 elsewhere; `--zip` also zips it). A build of everything takes four or five minutes.
 

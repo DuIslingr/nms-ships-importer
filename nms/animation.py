@@ -36,17 +36,30 @@ class TkAnimNodeData(mbin.Template):
               ("trans_index", 0x18, "i32", None))
 
 
-def read_frame(r, o):
-    """A TkAnimNodeFrameData at o: rotations (list of (x, y, z, w)), scales and translations (lists of (x, y, z))."""
+def vec3_stride(r, o):
+    """How a frame's scales and translations are stored: 16 bytes (four floats, the PC game) or 8 (four half floats,
+    the iOS game), told by the gap between the scales' data and the translations' when the scales have entries;
+    None when the frame has no scales."""
+    base_s, n_s = r.header16(o + 0x10)
+    base_t, _ = r.header16(o + 0x20)
+    if n_s <= 0:
+        return None
+    return 8 if 0 < base_t - base_s < 16 * n_s else 16
+
+
+def read_frame(r, o, stride=16):
+    """A TkAnimNodeFrameData at o: rotations (list of (x, y, z, w)), scales and translations (lists of (x, y, z)),
+    the vectors `stride` bytes each (16: floats, 8: half floats)."""
     base, n = r.header16(o)
     rotations = []
     for i in range(n // 3):
         cx, cy, cz = struct.unpack_from("<HHH", r.b, base + 6 * i)
         rotations.append(unpack_quaternion(cx, cy, cz))
+    fmt = "<3e" if stride == 8 else "<3f"
     base, n = r.header16(o + 0x10)
-    scales = [tuple(r.floats(base + 16 * i, 3)) for i in range(n)]
+    scales = [struct.unpack_from(fmt, r.b, base + stride * i) for i in range(n)]
     base, n = r.header16(o + 0x20)
-    translations = [tuple(r.floats(base + 16 * i, 3)) for i in range(n)]
+    translations = [struct.unpack_from(fmt, r.b, base + stride * i) for i in range(n)]
     return {"rotations": rotations, "scales": scales, "translations": translations}
 
 
@@ -76,13 +89,16 @@ class Animation:
         _, h = mbin.header(data), None
         r = mbin.Reader(data)
         o = mbin.HEADER
-        self.still = read_frame(r, o)
+        stride = vec3_stride(r, o) or 16
+        self.still = read_frame(r, o, stride)
         base, n = r.header16(o + 0x30)
-        self.frames = [read_frame(r, base + 0x30 * i) for i in range(n)]
+        self.frames = [read_frame(r, base + 0x30 * i, vec3_stride(r, base + 0x30 * i) or stride) for i in range(n)]
         base, n = r.header16(o + 0x40)
         self.node_data = [TkAnimNodeData.read(r, base + 0x20 * i) for i in range(n)]
         self.frame_count = r.i32(o + 0x50)
         self.node_count = r.i32(o + 0x54)
+        self.half_rate = r.i32(o + 0x58) == 1   # the iOS game's longer animations keep every other frame
+        self.fps = FPS // 2 if self.half_rate else FPS
         self.nodes = [nd["node"] for nd in self.node_data]
 
     def _value(self, kind, index, frame):
@@ -105,6 +121,20 @@ class Animation:
             sc, _ = self._value("scales", nd["scale_index"], f)
             tr, _ = self._value("translations", nd["trans_index"], f)
             out.append((rot, sc, tr))
+        return out
+
+    def track_at(self, node, fps):
+        """`track(node)` resampled to `fps` frames a second (a half-rate file gets a blended frame between each two)."""
+        track = self.track(node)
+        if track is None or fps == self.fps or len(track) < 2:
+            return track
+        factor = max(1, int(round(fps / self.fps)))
+        out = []
+        for a, b in zip(track, track[1:]):
+            out.append(a)
+            for k in range(1, factor):
+                out.append(blend(a, b, k / factor))
+        out.append(track[-1])
         return out
 
     def animated(self, node):
@@ -206,6 +236,23 @@ def transition(component, name):
         if (a["anim"] or "").upper() == name.upper() and a["filename"]:
             return a
     return None
+
+
+def blend(a, b, t):
+    """A frame between two (rotation, scale, translation) frames: the quaternions blended and renormalized (the
+    nearer hemisphere), the vectors interpolated; None stays None."""
+    def vec(u, v):
+        return None if u is None or v is None else tuple(u[i] + (v[i] - u[i]) * t for i in range(3))
+    ra, rb = a[0], b[0]
+    if ra is None or rb is None:
+        rot = ra
+    else:
+        if sum(x * y for x, y in zip(ra, rb)) < 0:
+            rb = tuple(-x for x in rb)
+        q = [x + (y - x) * t for x, y in zip(ra, rb)]
+        n = math.sqrt(sum(x * x for x in q)) or 1.0
+        rot = tuple(x / n for x in q)
+    return (rot, vec(a[1], b[1]), vec(a[2], b[2]))
 
 
 def local_matrix(rotation, scale, translation):
